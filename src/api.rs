@@ -7,6 +7,54 @@ use crate::config;
 
 const LINEAR_API_URL: &str = "https://api.linear.app/graphql";
 
+/// Resolves a team key (like "SCW") or name to a team UUID.
+/// If the input is already a UUID (36 characters with dashes), returns it as-is.
+pub async fn resolve_team_id(client: &LinearClient, team: &str) -> Result<String> {
+    // If already a UUID (36 chars with dashes pattern), return as-is
+    if team.len() == 36 && team.chars().filter(|c| *c == '-').count() == 4 {
+        return Ok(team.to_string());
+    }
+
+    // Query to find team by key or name
+    let query = r#"
+        query {
+            teams(first: 100) {
+                nodes {
+                    id
+                    key
+                    name
+                }
+            }
+        }
+    "#;
+
+    let result = client.query(query, None).await?;
+    let empty = vec![];
+    let teams = result["data"]["teams"]["nodes"]
+        .as_array()
+        .unwrap_or(&empty);
+
+    // First try exact key match (case-insensitive)
+    if let Some(team_data) = teams.iter().find(|t| {
+        t["key"].as_str().map(|k| k.eq_ignore_ascii_case(team)) == Some(true)
+    }) {
+        if let Some(id) = team_data["id"].as_str() {
+            return Ok(id.to_string());
+        }
+    }
+
+    // Then try exact name match (case-insensitive)
+    if let Some(team_data) = teams.iter().find(|t| {
+        t["name"].as_str().map(|n| n.eq_ignore_ascii_case(team)) == Some(true)
+    }) {
+        if let Some(id) = team_data["id"].as_str() {
+            return Ok(id.to_string());
+        }
+    }
+
+    anyhow::bail!("Team not found: '{}'. Use 'linear-cli t list' to see available teams.", team)
+}
+
 pub struct LinearClient {
     client: Client,
     api_key: String,
