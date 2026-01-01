@@ -79,7 +79,7 @@ pub async fn run() -> Result<()> {
             format!("({})", current_team.key).dimmed()
         );
 
-        let actions = vec![
+        let actions = [
             MenuAction::CreateIssue,
             MenuAction::ListIssues,
             MenuAction::ViewIssue,

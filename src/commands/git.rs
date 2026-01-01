@@ -225,9 +225,8 @@ fn branch_exists(branch: &str, vcs: Vcs) -> bool {
         Vcs::Git => run_git_command(&["rev-parse", "--verify", branch]).is_ok(),
         Vcs::Jj => {
             // In jj, check if bookmark exists
-            run_jj_command(&["bookmark", "list", branch]).map_or(false, |output| {
-                output.lines().any(|line| line.starts_with(branch))
-            })
+            run_jj_command(&["bookmark", "list", branch])
+                .is_ok_and(|output| output.lines().any(|line| line.starts_with(branch)))
         }
     }
 }
@@ -254,12 +253,10 @@ async fn checkout_issue(issue_id: &str, custom_branch: Option<String>, vcs: Vcs)
     let (identifier, title, linear_branch, url) = get_issue_info(issue_id).await?;
 
     let branch_name = custom_branch
-        .or_else(|| {
-            if linear_branch.is_empty() {
-                None
-            } else {
-                Some(linear_branch)
-            }
+        .or(if linear_branch.is_empty() {
+            None
+        } else {
+            Some(linear_branch)
         })
         .unwrap_or_else(|| generate_branch_name(&identifier, &title));
 
@@ -360,12 +357,10 @@ async fn create_branch(issue_id: &str, custom_branch: Option<String>, vcs: Vcs) 
     let (identifier, title, linear_branch, url) = get_issue_info(issue_id).await?;
 
     let branch_name = custom_branch
-        .or_else(|| {
-            if linear_branch.is_empty() {
-                None
-            } else {
-                Some(linear_branch)
-            }
+        .or(if linear_branch.is_empty() {
+            None
+        } else {
+            Some(linear_branch)
         })
         .unwrap_or_else(|| generate_branch_name(&identifier, &title));
 

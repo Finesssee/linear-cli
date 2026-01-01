@@ -373,6 +373,7 @@ async fn get_issue(id: &str, output: OutputFormat) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn create_issue(
     title: &str,
     team: &str,
@@ -701,12 +702,10 @@ async fn start_issue(id: &str, checkout: bool, custom_branch: Option<String>) ->
     // Optionally checkout a git branch
     if checkout {
         let branch_name = custom_branch
-            .or_else(|| {
-                if linear_branch.is_empty() {
-                    None
-                } else {
-                    Some(linear_branch)
-                }
+            .or(if linear_branch.is_empty() {
+                None
+            } else {
+                Some(linear_branch)
             })
             .unwrap_or_else(|| generate_branch_name(identifier, title));
 
