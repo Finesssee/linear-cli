@@ -72,8 +72,8 @@ async fn search_issues(query: &str, limit: u32, include_archived: bool) -> Resul
     let client = LinearClient::new()?;
 
     let graphql_query = r#"
-        query($query: String!, $first: Int!, $includeArchived: Boolean) {
-            issueSearch(query: $query, first: $first, includeArchived: $includeArchived) {
+        query($first: Int!, $includeArchived: Boolean, $filter: IssueFilter) {
+            issues(first: $first, includeArchived: $includeArchived, filter: $filter) {
                 nodes {
                     id
                     identifier
@@ -86,15 +86,20 @@ async fn search_issues(query: &str, limit: u32, include_archived: bool) -> Resul
     "#;
 
     let variables = json!({
-        "query": query,
         "first": limit,
-        "includeArchived": include_archived
+        "includeArchived": include_archived,
+        "filter": {
+            "or": [
+                { "title": { "containsIgnoreCase": query } },
+                { "description": { "containsIgnoreCase": query } }
+            ]
+        }
     });
 
     let result = client.query(graphql_query, Some(variables)).await?;
 
     let empty = vec![];
-    let issues = result["data"]["issueSearch"]["nodes"]
+    let issues = result["data"]["issues"]["nodes"]
         .as_array()
         .unwrap_or(&empty);
 
