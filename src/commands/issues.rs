@@ -5,7 +5,7 @@ use serde_json::json;
 use std::process::Command;
 use tabled::{Table, Tabled};
 
-use crate::api::LinearClient;
+use crate::api::{resolve_team_id, LinearClient};
 use crate::OutputFormat;
 
 #[derive(Subcommand)]
@@ -360,9 +360,12 @@ async fn create_issue(
 ) -> Result<()> {
     let client = LinearClient::new()?;
 
+    // Resolve team key/name to UUID
+    let team_id = resolve_team_id(&client, team).await?;
+
     let mut input = json!({
         "title": title,
-        "teamId": team
+        "teamId": team_id
     });
 
     if let Some(desc) = description {
@@ -585,6 +588,9 @@ async fn start_issue(id: &str, checkout: bool, custom_branch: Option<String>) ->
                     }
                 }
             }
+            viewer {
+                id
+            }
         }
     "#;
 
@@ -598,6 +604,11 @@ async fn start_issue(id: &str, checkout: bool, custom_branch: Option<String>) ->
     let identifier = issue["identifier"].as_str().unwrap_or("");
     let title = issue["title"].as_str().unwrap_or("");
     let linear_branch = issue["branchName"].as_str().unwrap_or("").to_string();
+
+    // Get current user ID
+    let viewer_id = result["data"]["viewer"]["id"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("Could not fetch current user ID"))?;
 
     // Find a "started" type state (In Progress)
     let empty = vec![];
@@ -618,10 +629,10 @@ async fn start_issue(id: &str, checkout: bool, custom_branch: Option<String>) ->
         .and_then(|s| s["name"].as_str())
         .unwrap_or("In Progress");
 
-    // Update the issue: set state to "In Progress" and assign to me
+    // Update the issue: set state to "In Progress" and assign to current user
     let input = json!({
         "stateId": state_id,
-        "assigneeId": "me"
+        "assigneeId": viewer_id
     });
 
     let mutation = r#"
