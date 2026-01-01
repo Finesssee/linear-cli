@@ -440,7 +440,7 @@ async fn update_issue_interactive(client: &LinearClient) -> Result<()> {
         return Ok(());
     }
 
-    // First fetch the issue to show current state
+    // First fetch the issue to show current state and get the UUID
     let query = r#"
         query($id: String!) {
             issue(id: $id) {
@@ -463,6 +463,8 @@ async fn update_issue_interactive(client: &LinearClient) -> Result<()> {
         return Ok(());
     }
 
+    // Get the UUID for the update mutation
+    let issue_uuid = issue["id"].as_str().unwrap_or(&issue_id);
     let current_title = issue["title"].as_str().unwrap_or("");
     let identifier = issue["identifier"].as_str().unwrap_or("");
     println!(
@@ -537,8 +539,9 @@ async fn update_issue_interactive(client: &LinearClient) -> Result<()> {
         }
     "#;
 
+    // Use the UUID for the update mutation
     let result = client
-        .mutate(mutation, Some(json!({ "id": issue_id, "input": input })))
+        .mutate(mutation, Some(json!({ "id": issue_uuid, "input": input })))
         .await?;
 
     if result["data"]["issueUpdate"]["success"].as_bool() == Some(true) {
