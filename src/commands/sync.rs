@@ -14,6 +14,10 @@ const DEFAULT_CODE_DIR: &str = r"D:\code";
 #[derive(Subcommand)]
 pub enum SyncCommands {
     /// Compare local folders with Linear projects
+    #[command(after_help = r#"EXAMPLES:
+    linear sync status                         # Compare D:\code with Linear
+    linear sy status -d /path/to/code          # Custom directory
+    linear sy status --missing-only            # Show only missing projects"#)]
     Status {
         /// Directory to scan for local projects (default: D:\code)
         #[arg(short, long)]
@@ -23,6 +27,10 @@ pub enum SyncCommands {
         missing_only: bool,
     },
     /// Create Linear projects from local folders that don't exist in Linear
+    #[command(after_help = r#"EXAMPLES:
+    linear sync push -t ENG                    # Create projects for all folders
+    linear sy push -t ENG --dry-run            # Preview without creating
+    linear sy push -t ENG -o proj1,proj2       # Only specific folders"#)]
     Push {
         /// Directory to scan for local projects (default: D:\code)
         #[arg(short, long)]

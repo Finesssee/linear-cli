@@ -28,6 +28,10 @@ impl std::fmt::Display for Vcs {
 #[derive(Subcommand)]
 pub enum GitCommands {
     /// Checkout a branch for an issue (creates if doesn't exist)
+    #[command(after_help = r#"EXAMPLES:
+    linear git checkout LIN-123                # Checkout issue branch
+    linear g checkout LIN-123 -b feature/fix   # Use custom branch name
+    linear g checkout LIN-123 --vcs jj         # Use Jujutsu VCS"#)]
     Checkout {
         /// Issue identifier (e.g., "LIN-123") or ID
         issue: String,
@@ -39,6 +43,9 @@ pub enum GitCommands {
         vcs: Option<Vcs>,
     },
     /// Show the branch name for an issue
+    #[command(after_help = r#"EXAMPLES:
+    linear git branch LIN-123                  # Show branch name
+    linear g branch LIN-123 --vcs git          # Show git branch name"#)]
     Branch {
         /// Issue identifier (e.g., "LIN-123") or ID
         issue: String,
@@ -47,6 +54,9 @@ pub enum GitCommands {
         vcs: Option<Vcs>,
     },
     /// Create a branch for an issue without checking out
+    #[command(after_help = r#"EXAMPLES:
+    linear git create LIN-123                  # Create branch
+    linear g create LIN-123 -b custom-branch   # Create with custom name"#)]
     Create {
         /// Issue identifier (e.g., "LIN-123") or ID
         issue: String,
@@ -58,6 +68,9 @@ pub enum GitCommands {
         vcs: Option<Vcs>,
     },
     /// Show commits with Linear issue trailers (jj only)
+    #[command(after_help = r#"EXAMPLES:
+    linear git commits                         # Show last 10 commits
+    linear g commits -l 20                     # Show last 20 commits"#)]
     Commits {
         /// Number of commits to show
         #[arg(short, long, default_value = "10")]
@@ -67,6 +80,11 @@ pub enum GitCommands {
         vcs: Option<Vcs>,
     },
     /// Create a GitHub PR from a Linear issue
+    #[command(after_help = r#"EXAMPLES:
+    linear git pr LIN-123                      # Create PR for issue
+    linear g pr LIN-123 --draft                # Create draft PR
+    linear g pr LIN-123 -B develop             # Merge into develop
+    linear g pr LIN-123 --web                  # Open PR in browser"#)]
     Pr {
         /// Issue identifier (e.g., "LIN-123") or ID
         issue: String,

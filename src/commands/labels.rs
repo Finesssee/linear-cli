@@ -11,12 +11,21 @@ use crate::OutputFormat;
 pub enum LabelCommands {
     /// List labels
     #[command(alias = "ls")]
+    #[command(after_help = r#"EXAMPLES:
+    linear labels list                         # List project labels
+    linear l list --type issue                 # List issue labels
+    linear l list --output json                # Output as JSON"#)]
     List {
         /// Label type: issue or project
         #[arg(short, long, default_value = "project")]
         r#type: String,
     },
     /// Create a new label
+    #[command(after_help = r##"EXAMPLES:
+    linear labels create "Feature"             # Create project label
+    linear l create "Bug" --type issue         # Create issue label
+    linear l create "UI" -c "#FF5733"          # With custom color
+    linear l create "Sub" -p PARENT_ID         # As child of parent"##)]
     Create {
         /// Label name
         name: String,
@@ -31,6 +40,10 @@ pub enum LabelCommands {
         parent: Option<String>,
     },
     /// Delete a label
+    #[command(after_help = r#"EXAMPLES:
+    linear labels delete LABEL_ID              # Delete with confirmation
+    linear l delete LABEL_ID --force           # Delete without confirmation
+    linear l delete LABEL_ID --type issue      # Delete issue label"#)]
     Delete {
         /// Label ID
         id: String,

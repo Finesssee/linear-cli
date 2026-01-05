@@ -10,6 +10,9 @@ use crate::api::LinearClient;
 pub enum BulkCommands {
     /// Update the state of multiple issues
     #[command(alias = "state")]
+    #[command(after_help = r#"EXAMPLES:
+    linear bulk update-state Done -i LIN-1,LIN-2,LIN-3
+    linear b state "In Progress" -i LIN-1,LIN-2"#)]
     UpdateState {
         /// The new state name or ID
         state: String,
@@ -18,6 +21,9 @@ pub enum BulkCommands {
         issues: Vec<String>,
     },
     /// Assign multiple issues to a user
+    #[command(after_help = r#"EXAMPLES:
+    linear bulk assign me -i LIN-1,LIN-2,LIN-3
+    linear b assign john@example.com -i LIN-1,LIN-2"#)]
     Assign {
         /// The user to assign (user ID, name, email, or "me")
         user: String,
@@ -26,6 +32,9 @@ pub enum BulkCommands {
         issues: Vec<String>,
     },
     /// Add a label to multiple issues
+    #[command(after_help = r#"EXAMPLES:
+    linear bulk label "Bug" -i LIN-1,LIN-2,LIN-3
+    linear b label LABEL_ID -i LIN-1,LIN-2"#)]
     Label {
         /// The label name or ID to add
         label: String,
@@ -34,6 +43,8 @@ pub enum BulkCommands {
         issues: Vec<String>,
     },
     /// Unassign multiple issues
+    #[command(after_help = r#"EXAMPLES:
+    linear bulk unassign -i LIN-1,LIN-2,LIN-3"#)]
     Unassign {
         /// Comma-separated list of issue IDs (e.g., "LIN-1,LIN-2,LIN-3")
         #[arg(short, long, value_delimiter = ',')]
