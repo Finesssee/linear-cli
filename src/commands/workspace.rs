@@ -45,11 +45,9 @@ pub async fn handle(cmd: WorkspaceCommands) -> Result<()> {
 async fn add_workspace(name: &str, key: Option<String>) -> Result<()> {
     let api_key = match key {
         Some(k) => k,
-        None => {
-            Password::new()
-                .with_prompt(format!("Enter API key for workspace '{}'", name))
-                .interact()?
-        }
+        None => Password::new()
+            .with_prompt(format!("Enter API key for workspace '{}'", name))
+            .interact()?,
     };
 
     if api_key.is_empty() {
