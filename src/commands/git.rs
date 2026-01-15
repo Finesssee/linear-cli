@@ -533,3 +533,57 @@ async fn create_pr(issue_id: &str, base: &str, draft: bool, web: bool) -> Result
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_branch_name_simple() {
+        assert_eq!(
+            generate_branch_name("LIN-123", "Fix bug"),
+            "lin-123/fix-bug"
+        );
+    }
+
+    #[test]
+    fn test_generate_branch_name_special_chars() {
+        assert_eq!(
+            generate_branch_name("LIN-456", "Add feature: user auth!"),
+            "lin-456/add-feature-user-auth"
+        );
+    }
+
+    #[test]
+    fn test_generate_branch_name_long_title() {
+        let long_title = "This is a very long title that should be truncated because it exceeds the maximum length";
+        let result = generate_branch_name("LIN-789", long_title);
+        // Format is identifier/slug, identifier is 7 chars + 1 slash = 8 chars
+        // Slug should be max 50 chars
+        assert!(result.len() <= 58, "Branch name too long: {}", result);
+        assert!(result.starts_with("lin-789/"));
+    }
+
+    #[test]
+    fn test_generate_branch_name_unicode() {
+        // Unicode chars get removed (not alphanumeric)
+        let result = generate_branch_name("LIN-100", "Fix emoji 🎉 handling");
+        assert_eq!(result, "lin-100/fix-emoji-handling");
+    }
+
+    #[test]
+    fn test_generate_branch_name_multiple_spaces() {
+        assert_eq!(
+            generate_branch_name("ENG-42", "Fix   multiple   spaces"),
+            "eng-42/fix-multiple-spaces"
+        );
+    }
+
+    #[test]
+    fn test_generate_branch_name_leading_trailing_special() {
+        assert_eq!(
+            generate_branch_name("DEV-1", "  --Fix bug--  "),
+            "dev-1/fix-bug"
+        );
+    }
+}

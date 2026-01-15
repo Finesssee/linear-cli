@@ -8,18 +8,22 @@ use std::path::Path;
 
 use crate::api::{resolve_team_id, LinearClient};
 
-/// Default directory to scan for local projects
-const DEFAULT_CODE_DIR: &str = r"D:\code";
+/// Get default directory to scan for local projects (cross-platform)
+fn get_default_code_dir() -> String {
+    dirs::home_dir()
+        .map(|p| p.join("code").to_string_lossy().to_string())
+        .unwrap_or_else(|| ".".to_string())
+}
 
 #[derive(Subcommand)]
 pub enum SyncCommands {
     /// Compare local folders with Linear projects
     #[command(after_help = r#"EXAMPLES:
-    linear sync status                         # Compare D:\code with Linear
+    linear sync status                         # Compare ~/code with Linear
     linear sy status -d /path/to/code          # Custom directory
     linear sy status --missing-only            # Show only missing projects"#)]
     Status {
-        /// Directory to scan for local projects (default: D:\code)
+        /// Directory to scan for local projects (default: ~/code)
         #[arg(short, long)]
         directory: Option<String>,
         /// Show only missing projects (not in Linear)
@@ -32,7 +36,7 @@ pub enum SyncCommands {
     linear sy push -t ENG --dry-run            # Preview without creating
     linear sy push -t ENG -o proj1,proj2       # Only specific folders"#)]
     Push {
-        /// Directory to scan for local projects (default: D:\code)
+        /// Directory to scan for local projects (default: ~/code)
         #[arg(short, long)]
         directory: Option<String>,
         /// Team name or ID to create projects in
@@ -207,7 +211,7 @@ fn compare_projects(local: Vec<LocalProject>, remote: Vec<LinearProject>) -> Vec
 
 /// Display sync status
 async fn status_command(directory: Option<String>, missing_only: bool) -> Result<()> {
-    let dir = directory.unwrap_or_else(|| DEFAULT_CODE_DIR.to_string());
+    let dir = directory.unwrap_or_else(get_default_code_dir);
 
     println!("{}", "Sync Status".bold());
     println!("{}", "─".repeat(60));
@@ -348,7 +352,7 @@ async fn push_command(
     only: Option<String>,
     dry_run: bool,
 ) -> Result<()> {
-    let dir = directory.unwrap_or_else(|| DEFAULT_CODE_DIR.to_string());
+    let dir = directory.unwrap_or_else(get_default_code_dir);
 
     // Create client early to resolve team ID
     let client = LinearClient::new()?;

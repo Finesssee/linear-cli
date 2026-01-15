@@ -37,16 +37,6 @@ impl CacheEntry {
             .as_secs();
         now.saturating_sub(self.timestamp)
     }
-
-    /// Get remaining TTL in seconds
-    pub fn remaining_ttl(&self) -> u64 {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or(Duration::ZERO)
-            .as_secs();
-        let expires_at = self.timestamp + self.ttl_seconds;
-        expires_at.saturating_sub(now)
-    }
 }
 
 /// Cache types supported by the CLI
@@ -173,11 +163,6 @@ impl Cache {
         let content = serde_json::to_string_pretty(&entry)?;
         fs::write(path, content)?;
         Ok(())
-    }
-
-    /// Check if cache is valid for a given type
-    pub fn is_valid(&self, cache_type: CacheType) -> bool {
-        self.get(cache_type).is_some()
     }
 
     /// Clear cache for a specific type

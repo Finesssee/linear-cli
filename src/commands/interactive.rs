@@ -443,8 +443,15 @@ async fn update_issue_interactive(client: &LinearClient) -> Result<()> {
                 id
                 identifier
                 title
+                description
                 priority
-                state { name }
+                state { id name }
+                assignee { id name }
+                team {
+                    id
+                    states { nodes { id name type } }
+                    members { nodes { id name } }
+                }
             }
         }
     "#;
@@ -460,10 +467,15 @@ async fn update_issue_interactive(client: &LinearClient) -> Result<()> {
     // Get the UUID for the update mutation
     let issue_uuid = issue["id"].as_str().unwrap_or(&issue_id);
     let current_title = issue["title"].as_str().unwrap_or("");
+    let current_description = issue["description"].as_str().unwrap_or("");
     let identifier = issue["identifier"].as_str().unwrap_or("");
-    println!("\nCurrent: {} {}", identifier.cyan(), current_title);
+    let current_state = issue["state"]["name"].as_str().unwrap_or("Unknown");
+    let current_assignee = issue["assignee"]["name"].as_str().unwrap_or("Unassigned");
 
-    let update_options = vec!["Title", "Priority", "Cancel"];
+    println!("\nCurrent: {} {}", identifier.cyan(), current_title);
+    println!("Status: {} | Assignee: {}", current_state.yellow(), current_assignee.dimmed());
+
+    let update_options = vec!["Title", "Priority", "Status", "Assignee", "Description", "Cancel"];
     let selection = Select::new()
         .with_prompt("What to update?")
         .items(&update_options)
@@ -495,6 +507,100 @@ async fn update_issue_interactive(client: &LinearClient) -> Result<()> {
                 .interact()?;
 
             input["priority"] = json!(priority_selection);
+        }
+        2 => {
+            // Update status
+            let states = issue["team"]["states"]["nodes"].as_array();
+            if let Some(states) = states {
+                let state_names: Vec<&str> = states
+                    .iter()
+                    .filter_map(|s| s["name"].as_str())
+                    .collect();
+
+                if state_names.is_empty() {
+                    println!("No states available for this team.");
+                    return Ok(());
+                }
+
+                // Find current state index
+                let current_state_id = issue["state"]["id"].as_str().unwrap_or("");
+                let current_idx = states
+                    .iter()
+                    .position(|s| s["id"].as_str() == Some(current_state_id))
+                    .unwrap_or(0);
+
+                let state_selection = Select::new()
+                    .with_prompt("New status")
+                    .items(&state_names)
+                    .default(current_idx)
+                    .interact()?;
+
+                if let Some(state_id) = states[state_selection]["id"].as_str() {
+                    input["stateId"] = json!(state_id);
+                }
+            } else {
+                println!("Could not fetch team states.");
+                return Ok(());
+            }
+        }
+        3 => {
+            // Update assignee
+            let members = issue["team"]["members"]["nodes"].as_array();
+            if let Some(members) = members {
+                let mut assignee_names: Vec<&str> = vec!["(Unassign)"];
+                assignee_names.extend(members.iter().filter_map(|m| m["name"].as_str()));
+
+                // Find current assignee index
+                let current_assignee_id = issue["assignee"]["id"].as_str().unwrap_or("");
+                let current_idx = if current_assignee_id.is_empty() {
+                    0 // Unassigned
+                } else {
+                    members
+                        .iter()
+                        .position(|m| m["id"].as_str() == Some(current_assignee_id))
+                        .map(|i| i + 1) // +1 because of "(Unassign)" at index 0
+                        .unwrap_or(0)
+                };
+
+                let assignee_selection = Select::new()
+                    .with_prompt("Assignee")
+                    .items(&assignee_names)
+                    .default(current_idx)
+                    .interact()?;
+
+                if assignee_selection == 0 {
+                    input["assigneeId"] = json!(null);
+                } else if let Some(member_id) = members[assignee_selection - 1]["id"].as_str() {
+                    input["assigneeId"] = json!(member_id);
+                }
+            } else {
+                println!("Could not fetch team members.");
+                return Ok(());
+            }
+        }
+        4 => {
+            // Update description
+            println!("Current description:");
+            if current_description.is_empty() {
+                println!("  (empty)");
+            } else {
+                for line in current_description.lines().take(5) {
+                    println!("  {}", line.dimmed());
+                }
+                if current_description.lines().count() > 5 {
+                    println!("  {} more lines...", current_description.lines().count() - 5);
+                }
+            }
+
+            let new_description: String = Input::new()
+                .with_prompt("New description (markdown, single line)")
+                .with_initial_text(current_description)
+                .allow_empty(true)
+                .interact_text()?;
+
+            if new_description != current_description {
+                input["description"] = json!(new_description);
+            }
         }
         _ => {
             println!("Cancelled.");

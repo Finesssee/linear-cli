@@ -627,9 +627,15 @@ async fn update_issue(
 
 async fn delete_issue(id: &str, force: bool) -> Result<()> {
     if !force {
-        println!("Are you sure you want to delete issue {}?", id);
-        println!("This action cannot be undone. Use --force to skip this prompt.");
-        return Ok(());
+        let confirm = dialoguer::Confirm::new()
+            .with_prompt(format!("Delete issue {}? This cannot be undone", id))
+            .default(false)
+            .interact()?;
+
+        if !confirm {
+            println!("Cancelled.");
+            return Ok(());
+        }
     }
 
     let client = LinearClient::new()?;
