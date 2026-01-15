@@ -298,6 +298,7 @@ linear-cli i list --output json
 linear-cli p list --output json | jq '.[] | .name'
 linear-cli i get LIN-123 --output json
 linear-cli t list --output json
+linear-cli cm list ISSUE_ID --output json    # Comments as JSON (great for LLMs)
 ```
 
 ## Example Workflows
