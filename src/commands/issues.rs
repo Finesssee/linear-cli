@@ -165,7 +165,11 @@ struct IssueRow {
     assignee: String,
 }
 
-pub async fn handle(cmd: IssueCommands, output: OutputFormat, agent_opts: AgentOptions) -> Result<()> {
+pub async fn handle(
+    cmd: IssueCommands,
+    output: OutputFormat,
+    agent_opts: AgentOptions,
+) -> Result<()> {
     match cmd {
         IssueCommands::List {
             team,
@@ -174,13 +178,20 @@ pub async fn handle(cmd: IssueCommands, output: OutputFormat, agent_opts: AgentO
             project,
             archived,
             limit,
-        } => list_issues(team, state, assignee, project, archived, limit, output, agent_opts).await,
+        } => {
+            list_issues(
+                team, state, assignee, project, archived, limit, output, agent_opts,
+            )
+            .await
+        }
         IssueCommands::Get { ids } => {
             // Support reading from stdin if no IDs provided or if "-" is passed
             let final_ids: Vec<String> = if ids.is_empty() || (ids.len() == 1 && ids[0] == "-") {
                 // Read from stdin
                 let stdin = io::stdin();
-                stdin.lock().lines()
+                stdin
+                    .lock()
+                    .lines()
                     .filter_map(|l| l.ok())
                     .filter(|l| !l.trim().is_empty())
                     .map(|l| l.trim().to_string())
@@ -189,7 +200,9 @@ pub async fn handle(cmd: IssueCommands, output: OutputFormat, agent_opts: AgentO
                 ids
             };
             if final_ids.is_empty() {
-                anyhow::bail!("No issue IDs provided. Provide IDs as arguments or pipe them via stdin.");
+                anyhow::bail!(
+                    "No issue IDs provided. Provide IDs as arguments or pipe them via stdin."
+                );
             }
             get_issues(&final_ids, output).await
         }
@@ -220,9 +233,9 @@ pub async fn handle(cmd: IssueCommands, output: OutputFormat, agent_opts: AgentO
             };
 
             // Team from CLI arg takes precedence, then template, then error
-            let final_team = team
-                .or(tpl.team.clone())
-                .ok_or_else(|| anyhow::anyhow!("--team is required (or use a template with a default team)"))?;
+            let final_team = team.or(tpl.team.clone()).ok_or_else(|| {
+                anyhow::anyhow!("--team is required (or use a template with a default team)")
+            })?;
 
             // Build title with optional prefix from template
             let final_title = if let Some(ref prefix) = tpl.title_prefix {
@@ -280,7 +293,17 @@ pub async fn handle(cmd: IssueCommands, output: OutputFormat, agent_opts: AgentO
                 Some(d) => Some(d.to_string()),
                 None => None,
             };
-            update_issue(&id, title, final_description, priority, state, assignee, output, agent_opts).await
+            update_issue(
+                &id,
+                title,
+                final_description,
+                priority,
+                state,
+                assignee,
+                output,
+                agent_opts,
+            )
+            .await
         }
         IssueCommands::Delete { id, force } => delete_issue(&id, force, agent_opts).await,
         IssueCommands::Start {
@@ -476,13 +499,7 @@ async fn get_issues(ids: &[String], output: OutputFormat) -> Result<()> {
                     let title = issue["title"].as_str().unwrap_or("");
                     let state = issue["state"]["name"].as_str().unwrap_or("-");
                     let priority = priority_to_string(issue["priority"].as_i64());
-                    println!(
-                        "{} {} [{}] {}",
-                        identifier.cyan(),
-                        title,
-                        state,
-                        priority
-                    );
+                    println!("{} {} [{}] {}", identifier.cyan(), title, state, priority);
                 }
             }
             Err(e) => {
@@ -650,25 +667,32 @@ async fn create_issue(
     // Dry run: show what would be created without actually creating
     if dry_run {
         if matches!(output, OutputFormat::Json) {
-            println!("{}", serde_json::to_string_pretty(&json!({
-                "dry_run": true,
-                "would_create": {
-                    "title": final_title,
-                    "team": final_team,
-                    "teamId": team_id,
-                    "description": description,
-                    "priority": priority,
-                    "state": state,
-                    "assignee": assignee,
-                    "labels": labels,
-                }
-            }))?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "dry_run": true,
+                    "would_create": {
+                        "title": final_title,
+                        "team": final_team,
+                        "teamId": team_id,
+                        "description": description,
+                        "priority": priority,
+                        "state": state,
+                        "assignee": assignee,
+                        "labels": labels,
+                    }
+                }))?
+            );
         } else {
             println!("{}", "[DRY RUN] Would create issue:".yellow().bold());
             println!("  Title:       {}", final_title);
             println!("  Team:        {} ({})", final_team, team_id);
             if let Some(ref desc) = description {
-                let preview = if desc.len() > 50 { format!("{}...", &desc[..50]) } else { desc.clone() };
+                let preview = if desc.len() > 50 {
+                    format!("{}...", &desc[..50])
+                } else {
+                    desc.clone()
+                };
                 println!("  Description: {}", preview);
             }
             if let Some(p) = priority {
@@ -908,7 +932,12 @@ fn generate_branch_name(identifier: &str, title: &str) -> String {
     format!("{}/{}", identifier.to_lowercase(), slug)
 }
 
-async fn start_issue(id: &str, checkout: bool, custom_branch: Option<String>, agent_opts: AgentOptions) -> Result<()> {
+async fn start_issue(
+    id: &str,
+    checkout: bool,
+    custom_branch: Option<String>,
+    agent_opts: AgentOptions,
+) -> Result<()> {
     let client = LinearClient::new()?;
 
     // First, get the issue details including team info to find the "started" state

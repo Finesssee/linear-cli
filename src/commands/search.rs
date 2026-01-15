@@ -73,7 +73,12 @@ pub async fn handle(cmd: SearchCommands, output: OutputFormat) -> Result<()> {
     }
 }
 
-async fn search_issues(query: &str, limit: u32, include_archived: bool, output: OutputFormat) -> Result<()> {
+async fn search_issues(
+    query: &str,
+    limit: u32,
+    include_archived: bool,
+    output: OutputFormat,
+) -> Result<()> {
     let client = LinearClient::new()?;
 
     let graphql_query = r#"
@@ -147,7 +152,12 @@ async fn search_issues(query: &str, limit: u32, include_archived: bool, output: 
     Ok(())
 }
 
-async fn search_projects(query: &str, limit: u32, include_archived: bool, output: OutputFormat) -> Result<()> {
+async fn search_projects(
+    query: &str,
+    limit: u32,
+    include_archived: bool,
+    output: OutputFormat,
+) -> Result<()> {
     let client = LinearClient::new()?;
 
     let graphql_query = r#"

@@ -117,10 +117,13 @@ async fn list_statuses(team: &str, output: OutputFormat) -> Result<()> {
     }
 
     if output == OutputFormat::Json {
-        println!("{}", serde_json::to_string_pretty(&json!({
-            "team": team_name,
-            "statuses": states
-        }))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "team": team_name,
+                "statuses": states
+            }))?
+        );
         return Ok(());
     }
 

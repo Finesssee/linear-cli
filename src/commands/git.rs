@@ -457,11 +457,8 @@ async fn show_commits(limit: usize, vcs: Vcs) -> Result<()> {
 
             // Get recent commits with their full messages
             let limit_str = limit.to_string();
-            let output = run_git_command(&[
-                "log",
-                &format!("-{}", limit_str),
-                "--format=%H|%s|%b%x00",
-            ])?;
+            let output =
+                run_git_command(&["log", &format!("-{}", limit_str), "--format=%H|%s|%b%x00"])?;
 
             for entry in output.split('\0') {
                 if entry.trim().is_empty() {

@@ -278,7 +278,10 @@ async fn mark_all_as_read() -> Result<()> {
             let client = client.clone();
             let id = id.to_string();
             async move {
-                client.mutate(mutation, Some(json!({ "id": id }))).await.is_ok()
+                client
+                    .mutate(mutation, Some(json!({ "id": id })))
+                    .await
+                    .is_ok()
             }
         })
         .collect();
@@ -331,7 +334,10 @@ async fn show_count(output: OutputFormat) -> Result<()> {
         .count();
 
     if matches!(output, OutputFormat::Json) {
-        println!("{}", serde_json::to_string_pretty(&json!({ "count": unread_count }))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({ "count": unread_count }))?
+        );
         return Ok(());
     }
 

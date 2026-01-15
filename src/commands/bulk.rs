@@ -258,7 +258,10 @@ pub async fn handle(cmd: BulkCommands, output: OutputFormat) -> Result<()> {
 async fn bulk_update_state(state: &str, issues: Vec<String>, output: OutputFormat) -> Result<()> {
     if issues.is_empty() {
         if output == OutputFormat::Json {
-            println!("{}", json!({ "error": "No issues specified", "results": [] }));
+            println!(
+                "{}",
+                json!({ "error": "No issues specified", "results": [] })
+            );
         } else {
             println!("No issues specified.");
         }
@@ -296,7 +299,10 @@ async fn bulk_update_state(state: &str, issues: Vec<String>, output: OutputForma
 async fn bulk_assign(user: &str, issues: Vec<String>, output: OutputFormat) -> Result<()> {
     if issues.is_empty() {
         if output == OutputFormat::Json {
-            println!("{}", json!({ "error": "No issues specified", "results": [] }));
+            println!(
+                "{}",
+                json!({ "error": "No issues specified", "results": [] })
+            );
         } else {
             println!("No issues specified.");
         }
@@ -349,7 +355,10 @@ async fn bulk_assign(user: &str, issues: Vec<String>, output: OutputFormat) -> R
 async fn bulk_label(label: &str, issues: Vec<String>, output: OutputFormat) -> Result<()> {
     if issues.is_empty() {
         if output == OutputFormat::Json {
-            println!("{}", json!({ "error": "No issues specified", "results": [] }));
+            println!(
+                "{}",
+                json!({ "error": "No issues specified", "results": [] })
+            );
         } else {
             println!("No issues specified.");
         }
@@ -402,7 +411,10 @@ async fn bulk_label(label: &str, issues: Vec<String>, output: OutputFormat) -> R
 async fn bulk_unassign(issues: Vec<String>, output: OutputFormat) -> Result<()> {
     if issues.is_empty() {
         if output == OutputFormat::Json {
-            println!("{}", json!({ "error": "No issues specified", "results": [] }));
+            println!(
+                "{}",
+                json!({ "error": "No issues specified", "results": [] })
+            );
         } else {
             println!("No issues specified.");
         }

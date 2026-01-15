@@ -186,7 +186,11 @@ async fn log_time(issue_id: &str, duration: &str, description: Option<String>) -
                     "{} Time tracking may not be available for your Linear workspace.",
                     "!".yellow()
                 );
-                println!("Attempted to log {} on {}", format_duration(minutes), identifier);
+                println!(
+                    "Attempted to log {} on {}",
+                    format_duration(minutes),
+                    identifier
+                );
             }
         }
         Err(_) => {
@@ -276,16 +280,8 @@ async fn list_time_entries(
                     .map(|e| {
                         let duration_mins = e["duration"].as_i64().unwrap_or(0) as i32;
                         TimeEntryRow {
-                            id: e["id"]
-                                .as_str()
-                                .unwrap_or("")
-                                .chars()
-                                .take(8)
-                                .collect(),
-                            issue: e["issue"]["identifier"]
-                                .as_str()
-                                .unwrap_or("-")
-                                .to_string(),
+                            id: e["id"].as_str().unwrap_or("").chars().take(8).collect(),
+                            issue: e["issue"]["identifier"].as_str().unwrap_or("-").to_string(),
                             duration: format_duration(duration_mins),
                             date: e["createdAt"]
                                 .as_str()

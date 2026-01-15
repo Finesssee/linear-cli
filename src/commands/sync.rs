@@ -238,7 +238,11 @@ fn compare_projects(local: Vec<LocalProject>, remote: Vec<LinearProject>) -> Vec
 }
 
 /// Display sync status
-async fn status_command(directory: Option<String>, missing_only: bool, output: OutputFormat) -> Result<()> {
+async fn status_command(
+    directory: Option<String>,
+    missing_only: bool,
+    output: OutputFormat,
+) -> Result<()> {
     let dir = directory.unwrap_or_else(get_default_code_dir);
     let client = LinearClient::new()?;
 
@@ -330,8 +334,20 @@ async fn status_command(directory: Option<String>, missing_only: bool, output: O
     println!("Scanning: {}", dir.cyan());
     println!();
 
-    println!("Found {} local folders", statuses.iter().filter(|s| !matches!(s, SyncStatus::RemoteOnly(_))).count());
-    println!("Found {} Linear projects", statuses.iter().filter(|s| !matches!(s, SyncStatus::LocalOnly(_))).count());
+    println!(
+        "Found {} local folders",
+        statuses
+            .iter()
+            .filter(|s| !matches!(s, SyncStatus::RemoteOnly(_)))
+            .count()
+    );
+    println!(
+        "Found {} Linear projects",
+        statuses
+            .iter()
+            .filter(|s| !matches!(s, SyncStatus::LocalOnly(_)))
+            .count()
+    );
     println!();
 
     // Display results

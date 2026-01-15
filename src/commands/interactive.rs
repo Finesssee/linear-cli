@@ -473,9 +473,20 @@ async fn update_issue_interactive(client: &LinearClient) -> Result<()> {
     let current_assignee = issue["assignee"]["name"].as_str().unwrap_or("Unassigned");
 
     println!("\nCurrent: {} {}", identifier.cyan(), current_title);
-    println!("Status: {} | Assignee: {}", current_state.yellow(), current_assignee.dimmed());
+    println!(
+        "Status: {} | Assignee: {}",
+        current_state.yellow(),
+        current_assignee.dimmed()
+    );
 
-    let update_options = vec!["Title", "Priority", "Status", "Assignee", "Description", "Cancel"];
+    let update_options = vec![
+        "Title",
+        "Priority",
+        "Status",
+        "Assignee",
+        "Description",
+        "Cancel",
+    ];
     let selection = Select::new()
         .with_prompt("What to update?")
         .items(&update_options)
@@ -512,10 +523,8 @@ async fn update_issue_interactive(client: &LinearClient) -> Result<()> {
             // Update status
             let states = issue["team"]["states"]["nodes"].as_array();
             if let Some(states) = states {
-                let state_names: Vec<&str> = states
-                    .iter()
-                    .filter_map(|s| s["name"].as_str())
-                    .collect();
+                let state_names: Vec<&str> =
+                    states.iter().filter_map(|s| s["name"].as_str()).collect();
 
                 if state_names.is_empty() {
                     println!("No states available for this team.");
@@ -588,7 +597,10 @@ async fn update_issue_interactive(client: &LinearClient) -> Result<()> {
                     println!("  {}", line.dimmed());
                 }
                 if current_description.lines().count() > 5 {
-                    println!("  {} more lines...", current_description.lines().count() - 5);
+                    println!(
+                        "  {} more lines...",
+                        current_description.lines().count() - 5
+                    );
                 }
             }
 

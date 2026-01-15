@@ -349,7 +349,10 @@ async fn main() {
                     "message": e.to_string(),
                     "code": categorize_error(&e),
                 });
-                eprintln!("{}", serde_json::to_string(&error_json).unwrap_or_else(|_| e.to_string()));
+                eprintln!(
+                    "{}",
+                    serde_json::to_string(&error_json).unwrap_or_else(|_| e.to_string())
+                );
             } else {
                 eprintln!("Error: {}", e);
             }
@@ -363,14 +366,21 @@ fn categorize_error(e: &anyhow::Error) -> u8 {
     let msg = e.to_string().to_lowercase();
     if msg.contains("not found") || msg.contains("does not exist") {
         2
-    } else if msg.contains("unauthorized") || msg.contains("api key") || msg.contains("authentication") {
+    } else if msg.contains("unauthorized")
+        || msg.contains("api key")
+        || msg.contains("authentication")
+    {
         3
     } else {
         1
     }
 }
 
-async fn run_command(command: Commands, output: OutputFormat, agent_opts: AgentOptions) -> Result<()> {
+async fn run_command(
+    command: Commands,
+    output: OutputFormat,
+    agent_opts: AgentOptions,
+) -> Result<()> {
     match command {
         Commands::Projects { action } => projects::handle(action, output).await?,
         Commands::Issues { action } => issues::handle(action, output, agent_opts).await?,
@@ -446,7 +456,8 @@ async fn handle_context(output: OutputFormat) -> Result<()> {
     // Extract issue ID from branch name using regex
     let re = regex::Regex::new(r"(?i)([a-z]+-\d+)").unwrap();
 
-    let issue_id = re.find(&branch)
+    let issue_id = re
+        .find(&branch)
         .map(|m| m.as_str().to_uppercase())
         .ok_or_else(|| anyhow::anyhow!("No Linear issue ID found in branch: {}", branch))?;
 
@@ -467,32 +478,43 @@ async fn handle_context(output: OutputFormat) -> Result<()> {
             }
         "#;
 
-        let result = client.query(query, Some(serde_json::json!({ "id": issue_id }))).await;
+        let result = client
+            .query(query, Some(serde_json::json!({ "id": issue_id })))
+            .await;
 
         match result {
             Ok(data) => {
                 let issue = &data["data"]["issue"];
                 if issue.is_null() {
-                    println!("{}", serde_json::json!({
-                        "branch": branch,
-                        "issue_id": issue_id,
-                        "found": false,
-                    }));
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "branch": branch,
+                            "issue_id": issue_id,
+                            "found": false,
+                        })
+                    );
                 } else {
-                    println!("{}", serde_json::json!({
-                        "branch": branch,
-                        "issue_id": issue_id,
-                        "found": true,
-                        "issue": issue,
-                    }));
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "branch": branch,
+                            "issue_id": issue_id,
+                            "found": true,
+                            "issue": issue,
+                        })
+                    );
                 }
             }
             Err(_) => {
-                println!("{}", serde_json::json!({
-                    "branch": branch,
-                    "issue_id": issue_id,
-                    "found": false,
-                }));
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "branch": branch,
+                        "issue_id": issue_id,
+                        "found": false,
+                    })
+                );
             }
         }
     } else {
