@@ -8,9 +8,9 @@ use std::path::Path;
 
 use crate::api::{resolve_team_id, LinearClient};
 use crate::cache::{Cache, CacheType};
+use crate::display_options;
 use crate::output::{print_json, OutputOptions};
 use crate::text::truncate;
-use crate::display_options;
 
 /// Get default directory to scan for local projects (cross-platform)
 fn get_default_code_dir() -> String {
@@ -401,12 +401,7 @@ async fn status_command(
                 "".dimmed()
             };
             let name = truncate(&local.name, name_width);
-            println!(
-                "  {} {} {}",
-                "!".yellow(),
-                name.yellow(),
-                git_indicator
-            );
+            println!("  {} {} {}", "!".yellow(), name.yellow(), git_indicator);
         }
         println!();
     }
@@ -427,12 +422,12 @@ async fn status_command(
                 "[REMOTE]".blue(),
                 remote_only.len()
             );
-        for remote in remote_only {
-            let name = truncate(&remote.name, name_width);
-            println!("  {} {}", "-".blue(), name.blue());
+            for remote in remote_only {
+                let name = truncate(&remote.name, name_width);
+                println!("  {} {}", "-".blue(), name.blue());
+            }
+            println!();
         }
-        println!();
-    }
     }
 
     // Summary
@@ -698,4 +693,3 @@ mod tests {
         assert_eq!(synced, 1);
     }
 }
-

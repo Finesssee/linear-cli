@@ -7,9 +7,9 @@ use tabled::{Table, Tabled};
 
 use crate::api::LinearClient;
 use crate::cache::{Cache, CacheType};
+use crate::display_options;
 use crate::output::{print_json, OutputOptions};
 use crate::text::truncate;
-use crate::display_options;
 
 #[derive(Subcommand)]
 pub enum TeamCommands {

@@ -5,9 +5,9 @@ use serde_json::json;
 use tabled::{Table, Tabled};
 
 use crate::api::LinearClient;
+use crate::display_options;
 use crate::output::{print_json, OutputOptions};
 use crate::text::truncate;
-use crate::display_options;
 
 #[derive(Subcommand)]
 pub enum LabelCommands {

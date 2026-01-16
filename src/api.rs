@@ -108,7 +108,14 @@ impl LinearClient {
                 403 => CliError::new(3, "Access denied - insufficient permissions"),
                 404 => CliError::new(2, "Resource not found"),
                 429 => CliError::new(4, "Rate limit exceeded").with_retry_after(retry_after),
-                _ => CliError::new(1, format!("HTTP {} {}", status.as_u16(), details["reason"].as_str().unwrap_or("Unknown error"))),
+                _ => CliError::new(
+                    1,
+                    format!(
+                        "HTTP {} {}",
+                        status.as_u16(),
+                        details["reason"].as_str().unwrap_or("Unknown error")
+                    ),
+                ),
             };
             return Err(err.with_details(details).into());
         }
@@ -152,7 +159,14 @@ impl LinearClient {
                 403 => CliError::new(3, "Access denied to this upload"),
                 404 => CliError::new(2, "Upload not found"),
                 429 => CliError::new(4, "Rate limit exceeded").with_retry_after(retry_after),
-                _ => CliError::new(1, format!("HTTP {} {}", status.as_u16(), details["reason"].as_str().unwrap_or("Unknown error"))),
+                _ => CliError::new(
+                    1,
+                    format!(
+                        "HTTP {} {}",
+                        status.as_u16(),
+                        details["reason"].as_str().unwrap_or("Unknown error")
+                    ),
+                ),
             };
             return Err(err.with_details(details).into());
         }

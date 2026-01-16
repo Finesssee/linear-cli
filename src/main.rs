@@ -8,15 +8,15 @@ mod text;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
-use std::sync::OnceLock;
 use clap_complete::{generate, Shell};
 use commands::{
     bulk, comments, cycles, documents, git, interactive, issues, labels, notifications, projects,
     search, statuses, sync, teams, templates, time, uploads, users,
 };
-use output::{JsonOutputOptions, OutputOptions, SortOrder};
-use output::print_json;
 use error::CliError;
+use output::print_json;
+use output::{JsonOutputOptions, OutputOptions, SortOrder};
+use std::sync::OnceLock;
 
 /// Output format for command results
 #[derive(Debug, Clone, Copy, Default, ValueEnum, PartialEq)]
@@ -69,7 +69,13 @@ COMMON FLAGS:
 For more info on a command, run: linear <command> --help"#)]
 struct Cli {
     /// Output format (table or json)
-    #[arg(short, long, global = true, env = "LINEAR_CLI_OUTPUT", default_value = "table")]
+    #[arg(
+        short,
+        long,
+        global = true,
+        env = "LINEAR_CLI_OUTPUT",
+        default_value = "table"
+    )]
     output: OutputFormat,
 
     /// Suppress decorative output (headers, separators, tips) - for scripting
@@ -81,7 +87,13 @@ struct Cli {
     id_only: bool,
 
     /// Color output: auto, always, or never
-    #[arg(long, global = true, value_enum, default_value = "auto", conflicts_with = "no_color")]
+    #[arg(
+        long,
+        global = true,
+        value_enum,
+        default_value = "auto",
+        conflicts_with = "no_color"
+    )]
     color: ColorChoice,
 
     /// Disable color output
@@ -536,26 +548,26 @@ async fn run_command(
             println!("  Use --output json for scripting/LLMs.");
             println!("  Use --no-color for logs/CI.");
         }
-        Commands::Projects { action } => projects::handle(action, &output).await?,
-        Commands::Issues { action } => issues::handle(action, &output, agent_opts).await?,
-        Commands::Labels { action } => labels::handle(action, &output).await?,
-        Commands::Teams { action } => teams::handle(action, &output).await?,
-        Commands::Users { action } => users::handle(action, &output).await?,
-        Commands::Cycles { action } => cycles::handle(action, &output).await?,
-        Commands::Comments { action } => comments::handle(action, &output).await?,
+        Commands::Projects { action } => projects::handle(action, output).await?,
+        Commands::Issues { action } => issues::handle(action, output, agent_opts).await?,
+        Commands::Labels { action } => labels::handle(action, output).await?,
+        Commands::Teams { action } => teams::handle(action, output).await?,
+        Commands::Users { action } => users::handle(action, output).await?,
+        Commands::Cycles { action } => cycles::handle(action, output).await?,
+        Commands::Comments { action } => comments::handle(action, output).await?,
         Commands::Documents { action } => documents::handle(action).await?,
-        Commands::Search { action } => search::handle(action, &output).await?,
-        Commands::Sync { action } => sync::handle(action, &output).await?,
-        Commands::Statuses { action } => statuses::handle(action, &output).await?,
+        Commands::Search { action } => search::handle(action, output).await?,
+        Commands::Sync { action } => sync::handle(action, output).await?,
+        Commands::Statuses { action } => statuses::handle(action, output).await?,
         Commands::Git { action } => git::handle(action).await?,
-        Commands::Bulk { action } => bulk::handle(action, &output).await?,
+        Commands::Bulk { action } => bulk::handle(action, output).await?,
         Commands::Cache { action } => commands::cache::handle(action).await?,
-        Commands::Notifications { action } => notifications::handle(action, &output).await?,
+        Commands::Notifications { action } => notifications::handle(action, output).await?,
         Commands::Templates { action } => templates::handle(action).await?,
-        Commands::Time { action } => time::handle(action, &output).await?,
+        Commands::Time { action } => time::handle(action, output).await?,
         Commands::Uploads { action } => uploads::handle(action).await?,
         Commands::Interactive { team } => interactive::run(team).await?,
-        Commands::Context => handle_context(&output).await?,
+        Commands::Context => handle_context(output).await?,
         Commands::Config { action } => match action {
             ConfigCommands::SetKey { key } => {
                 config::set_api_key(&key)?;

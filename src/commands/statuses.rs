@@ -6,9 +6,9 @@ use tabled::{Table, Tabled};
 
 use crate::api::{resolve_team_id, LinearClient};
 use crate::cache::{Cache, CacheType};
+use crate::display_options;
 use crate::output::{print_json, OutputOptions};
 use crate::text::truncate;
-use crate::display_options;
 
 #[derive(Subcommand)]
 pub enum StatusCommands {

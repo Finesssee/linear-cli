@@ -6,8 +6,8 @@ use serde_json::json;
 use tabled::{Table, Tabled};
 
 use crate::api::LinearClient;
-use crate::text::truncate;
 use crate::display_options;
+use crate::text::truncate;
 
 #[derive(Debug, Clone)]
 struct Team {

@@ -5,9 +5,9 @@ use futures::future::join_all;
 use serde_json::json;
 
 use crate::api::LinearClient;
+use crate::display_options;
 use crate::output::{print_json, OutputOptions};
 use crate::text::truncate;
-use crate::display_options;
 
 #[derive(Subcommand)]
 pub enum BulkCommands {
@@ -260,7 +260,10 @@ pub async fn handle(cmd: BulkCommands, output: &OutputOptions) -> Result<()> {
 async fn bulk_update_state(state: &str, issues: Vec<String>, output: &OutputOptions) -> Result<()> {
     if issues.is_empty() {
         if output.is_json() {
-            print_json(&json!({ "error": "No issues specified", "results": [] }), &output.json)?;
+            print_json(
+                &json!({ "error": "No issues specified", "results": [] }),
+                &output.json,
+            )?;
         } else {
             println!("No issues specified.");
         }
@@ -298,7 +301,10 @@ async fn bulk_update_state(state: &str, issues: Vec<String>, output: &OutputOpti
 async fn bulk_assign(user: &str, issues: Vec<String>, output: &OutputOptions) -> Result<()> {
     if issues.is_empty() {
         if output.is_json() {
-            print_json(&json!({ "error": "No issues specified", "results": [] }), &output.json)?;
+            print_json(
+                &json!({ "error": "No issues specified", "results": [] }),
+                &output.json,
+            )?;
         } else {
             println!("No issues specified.");
         }
@@ -351,7 +357,10 @@ async fn bulk_assign(user: &str, issues: Vec<String>, output: &OutputOptions) ->
 async fn bulk_label(label: &str, issues: Vec<String>, output: &OutputOptions) -> Result<()> {
     if issues.is_empty() {
         if output.is_json() {
-            print_json(&json!({ "error": "No issues specified", "results": [] }), &output.json)?;
+            print_json(
+                &json!({ "error": "No issues specified", "results": [] }),
+                &output.json,
+            )?;
         } else {
             println!("No issues specified.");
         }
@@ -404,7 +413,10 @@ async fn bulk_label(label: &str, issues: Vec<String>, output: &OutputOptions) ->
 async fn bulk_unassign(issues: Vec<String>, output: &OutputOptions) -> Result<()> {
     if issues.is_empty() {
         if output.is_json() {
-            print_json(&json!({ "error": "No issues specified", "results": [] }), &output.json)?;
+            print_json(
+                &json!({ "error": "No issues specified", "results": [] }),
+                &output.json,
+            )?;
         } else {
             println!("No issues specified.");
         }

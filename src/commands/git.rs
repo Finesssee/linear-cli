@@ -562,7 +562,11 @@ async fn show_commits(limit: usize, vcs: Vcs) -> Result<()> {
                         format!("[{}]", issue_id).cyan()
                     );
                 } else {
-                    println!("{} {}", change_id.dimmed(), truncate(description, desc_width));
+                    println!(
+                        "{} {}",
+                        change_id.dimmed(),
+                        truncate(description, desc_width)
+                    );
                 }
             }
 

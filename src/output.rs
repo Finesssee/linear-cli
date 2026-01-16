@@ -113,10 +113,7 @@ fn default_sort_key(items: &[Value]) -> Option<String> {
 }
 
 fn has_object_key(value: &Value, key: &str) -> bool {
-    value
-        .as_object()
-        .and_then(|obj| obj.get(key))
-        .is_some()
+    value.as_object().and_then(|obj| obj.get(key)).is_some()
 }
 
 fn compare_json_field(a: &Value, b: &Value, key: &str) -> Ordering {
@@ -137,7 +134,9 @@ fn extract_sort_key(value: &Value, key: &str) -> String {
 
 fn select_fields(value: &Value, fields: &[String]) -> Value {
     match value {
-        Value::Array(items) => Value::Array(items.iter().map(|v| select_fields(v, fields)).collect()),
+        Value::Array(items) => {
+            Value::Array(items.iter().map(|v| select_fields(v, fields)).collect())
+        }
         Value::Object(_) => {
             let mut out = Map::new();
             for path in fields {

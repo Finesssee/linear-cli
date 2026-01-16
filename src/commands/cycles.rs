@@ -5,9 +5,9 @@ use serde_json::json;
 use tabled::{Table, Tabled};
 
 use crate::api::{resolve_team_id, LinearClient};
+use crate::display_options;
 use crate::output::{print_json, OutputOptions};
 use crate::text::truncate;
-use crate::display_options;
 
 #[derive(Subcommand)]
 pub enum CycleCommands {
@@ -91,7 +91,7 @@ async fn list_cycles(team: &str, include_all: bool, output: &OutputOptions) -> R
     }
 
     if output.is_json() {
-        print_json(&team_data, &output.json)?;
+        print_json(team_data, &output.json)?;
         return Ok(());
     }
 
@@ -204,7 +204,7 @@ async fn current_cycle(team: &str, output: &OutputOptions) -> Result<()> {
     }
 
     if output.is_json() {
-        print_json(&team_data, &output.json)?;
+        print_json(team_data, &output.json)?;
         return Ok(());
     }
 

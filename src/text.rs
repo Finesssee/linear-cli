@@ -6,14 +6,12 @@ pub fn truncate(value: &str, max_len: Option<usize>) -> String {
         return String::new();
     }
     let mut out = String::new();
-    let mut count = 0;
 
-    for ch in value.chars() {
+    for (count, ch) in value.chars().enumerate() {
         if count + 1 > max_len {
             break;
         }
         out.push(ch);
-        count += 1;
     }
 
     if value.chars().count() > max_len && max_len > 3 {

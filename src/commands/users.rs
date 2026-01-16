@@ -6,9 +6,9 @@ use tabled::{Table, Tabled};
 
 use crate::api::{resolve_team_id, LinearClient};
 use crate::cache::{Cache, CacheType};
+use crate::display_options;
 use crate::output::{print_json, OutputOptions};
 use crate::text::truncate;
-use crate::display_options;
 
 #[derive(Subcommand)]
 pub enum UserCommands {
@@ -154,7 +154,7 @@ async fn get_me(output: &OutputOptions) -> Result<()> {
     }
 
     if output.is_json() {
-        print_json(&user, &output.json)?;
+        print_json(user, &output.json)?;
         return Ok(());
     }
 
