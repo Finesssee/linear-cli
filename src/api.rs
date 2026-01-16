@@ -75,6 +75,13 @@ impl LinearClient {
         })
     }
 
+    pub fn with_api_key(api_key: String) -> Self {
+        Self {
+            client: Client::new(),
+            api_key,
+        }
+    }
+
     pub async fn query(&self, query: &str, variables: Option<Value>) -> Result<Value> {
         let body = match variables {
             Some(vars) => json!({ "query": query, "variables": vars }),
@@ -95,14 +102,19 @@ impl LinearClient {
         let result: Value = response.json().await?;
 
         if !status.is_success() {
-            let retry_after = headers
-                .get("retry-after")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.parse::<u64>().ok());
-            let details = json!({
-                "status": status.as_u16(),
-                "reason": status.canonical_reason().unwrap_or("Unknown error"),
-            });
+        let retry_after = headers
+            .get("retry-after")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok());
+        let request_id = headers
+            .get("x-request-id")
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v.to_string());
+        let details = json!({
+            "status": status.as_u16(),
+            "reason": status.canonical_reason().unwrap_or("Unknown error"),
+            "request_id": request_id,
+        });
             let err = match status.as_u16() {
                 401 => CliError::new(3, "Authentication failed - check your API key"),
                 403 => CliError::new(3, "Access denied - insufficient permissions"),
@@ -150,9 +162,15 @@ impl LinearClient {
                 .get("retry-after")
                 .and_then(|v| v.to_str().ok())
                 .and_then(|v| v.parse::<u64>().ok());
+            let request_id = response
+                .headers()
+                .get("x-request-id")
+                .and_then(|v| v.to_str().ok())
+                .map(|v| v.to_string());
             let details = json!({
                 "status": status.as_u16(),
                 "reason": status.canonical_reason().unwrap_or("Unknown error"),
+                "request_id": request_id,
             });
             let err = match status.as_u16() {
                 401 => CliError::new(3, "Authentication failed - check your API key"),
