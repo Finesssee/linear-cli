@@ -8,7 +8,7 @@ use tabled::{Table, Tabled};
 
 use crate::api::{resolve_team_id, LinearClient};
 use crate::display_options;
-use crate::output::{print_json, OutputOptions};
+use crate::output::{print_json, sort_values, OutputOptions};
 use crate::text::truncate;
 use crate::AgentOptions;
 
@@ -120,6 +120,9 @@ pub enum IssueCommands {
         /// New assignee (user ID, name, email, or "me")
         #[arg(short, long)]
         assignee: Option<String>,
+        /// Preview without updating (dry run)
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Delete an issue
     #[command(after_help = r#"EXAMPLES:
@@ -313,6 +316,7 @@ pub async fn handle(
             priority,
             state,
             assignee,
+            dry_run,
         } => {
             if data.as_deref() == Some("-") && description.as_deref() == Some("-") {
                 anyhow::bail!("--data - and --description - cannot both read from stdin");
@@ -337,6 +341,7 @@ pub async fn handle(
                 priority,
                 state,
                 assignee,
+                dry_run,
                 output,
                 agent_opts,
             )
@@ -426,10 +431,14 @@ async fn list_issues(
         return Ok(());
     }
 
-    let empty = vec![];
-    let issues = result["data"]["issues"]["nodes"]
+    let mut issues = result["data"]["issues"]["nodes"]
         .as_array()
-        .unwrap_or(&empty);
+        .cloned()
+        .unwrap_or_default();
+
+    if let Some(sort_key) = output.json.sort.as_deref() {
+        sort_values(&mut issues, sort_key, output.json.order);
+    }
 
     if issues.is_empty() {
         println!("No issues found.");
@@ -810,6 +819,7 @@ async fn update_issue(
     priority: Option<i32>,
     state: Option<String>,
     assignee: Option<String>,
+    dry_run: bool,
     output: &OutputOptions,
     agent_opts: AgentOptions,
 ) -> Result<()> {
@@ -840,6 +850,25 @@ async fn update_issue(
     if input.as_object().map(|o| o.is_empty()).unwrap_or(true) {
         if !agent_opts.quiet {
             println!("No updates specified.");
+        }
+        return Ok(());
+    }
+
+    if dry_run {
+        if output.is_json() {
+            print_json(
+                &json!({
+                    "dry_run": true,
+                    "would_update": {
+                        "id": id,
+                        "input": input,
+                    }
+                }),
+                &output.json,
+            )?;
+        } else {
+            println!("{}", "[DRY RUN] Would update issue:".yellow().bold());
+            println!("  ID: {}", id);
         }
         return Ok(());
     }
