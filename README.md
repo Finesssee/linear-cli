@@ -1,5 +1,6 @@
 # linear-cli
 
+[![Crates.io](https://img.shields.io/crates/v/linear-cli.svg)](https://crates.io/crates/linear-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 
@@ -62,6 +63,15 @@ linear-cli g pr LIN-123
 | `labels` | `l` | Manage labels |
 | `teams` | `t` | List and view teams |
 | `cycles` | `c` | Manage sprint cycles |
+| `relations` | `rel` | Manage issue relations (blocks, duplicates, etc.) |
+| `export` | `ex` | Export issues to JSON/CSV |
+| `favorites` | `fav` | Manage favorites |
+| `history` | `hist` | View issue history and audit logs |
+| `initiatives` | `init` | Manage initiatives |
+| `metrics` | `met` | View workspace metrics |
+| `roadmaps` | `rm` | Manage roadmaps |
+| `triage` | `tr` | Triage responsibility management |
+| `watch` | `w` | Watch issues for changes |
 | `sync` | `sy` | Sync local folders with Linear |
 | `interactive` | `ui` | Interactive TUI mode |
 | `config` | - | CLI configuration |
@@ -80,6 +90,9 @@ Run `linear-cli <command> --help` for detailed usage.
 linear-cli i list -t Engineering           # List team's issues
 linear-cli i create "Bug" -t ENG -p 1      # Create urgent issue
 linear-cli i update LIN-123 -s Done        # Update status
+linear-cli i update LIN-123 -l bug -l urgent  # Add labels
+linear-cli i update LIN-123 --due tomorrow    # Set due date
+linear-cli i update LIN-123 -e 3              # Set estimate (3 points)
 
 # Git workflow
 linear-cli g checkout LIN-123              # Create branch for issue
@@ -87,6 +100,14 @@ linear-cli g pr LIN-123 --draft            # Create draft PR
 
 # Search
 linear-cli s issues "auth bug"             # Search issues
+
+# Export
+linear-cli export issues -t ENG -o issues.json  # Export to JSON
+linear-cli export issues -t ENG --csv           # Export to CSV
+
+# Relations
+linear-cli rel add LIN-123 blocks LIN-456       # LIN-123 blocks LIN-456
+linear-cli rel list LIN-123                     # List issue relations
 
 # JSON output (great for AI agents)
 linear-cli i get LIN-123 --output json
@@ -141,7 +162,7 @@ Config stored at `~/.config/linear-cli/config.toml` (Linux/macOS) or `%APPDATA%\
 
 | Feature | @linear/cli | linear-go | linear-cli |
 |---------|---------------|-------------|--------------|
-| Last updated | 2021 | 2023 | 2025 |
+| Last updated | 2021 | 2023 | 2026 |
 | Git PR creation | No | No | Yes |
 | jj (Jujutsu) support | No | No | Yes |
 | Interactive TUI | No | No | Yes |
