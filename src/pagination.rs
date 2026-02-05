@@ -2,6 +2,7 @@ use anyhow::Result;
 use serde_json::{Map, Value};
 
 use crate::api::LinearClient;
+use crate::json_path::get_path;
 
 #[derive(Debug, Clone, Default)]
 pub struct PaginationOptions {
@@ -26,13 +27,6 @@ impl PaginationOptions {
     }
 }
 
-fn get_path<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
-    let mut current = value;
-    for part in path {
-        current = current.get(*part)?;
-    }
-    Some(current)
-}
 
 pub async fn paginate_nodes(
     client: &LinearClient,

@@ -6,6 +6,9 @@ mod dates;
 mod error;
 mod output;
 mod pagination;
+mod priority;
+mod json_path;
+mod vcs;
 mod retry;
 mod text;
 
@@ -655,6 +658,7 @@ async fn main() -> Result<()> {
     if let Some(profile) = cli.profile.as_deref() {
         std::env::set_var("LINEAR_CLI_PROFILE", profile);
     }
+    api::set_default_retry(cli.retry);
     let filters = parse_filters(&cli.filter)?;
     let pagination = PaginationOptions {
         limit: cli.limit,
@@ -706,7 +710,7 @@ async fn main() -> Result<()> {
         std::process::exit(0);
     }
 
-    let result = run_command(cli.command, &output, agent_opts).await;
+    let result = run_command(cli.command, &output, agent_opts, cli.retry).await;
 
     match result {
         Ok(()) => std::process::exit(0),
@@ -773,6 +777,7 @@ async fn run_command(
     command: Commands,
     output: &OutputOptions,
     agent_opts: AgentOptions,
+    retry: u32,
 ) -> Result<()> {
     match command {
         Commands::Common => {
@@ -832,7 +837,7 @@ async fn run_command(
         Commands::Time { action } => time::handle(action, output).await?,
         Commands::Uploads { action } => uploads::handle(action).await?,
         Commands::Interactive { team } => interactive::run(team).await?,
-        Commands::Context => handle_context(output, agent_opts).await?,
+        Commands::Context => handle_context(output, agent_opts, retry).await?,
         Commands::Favorites { action } => favorites::handle(action, output).await?,
         Commands::Roadmaps { action } => {
             let pagination = PaginationOptions::default();
@@ -892,7 +897,7 @@ async fn run_command(
 }
 
 /// Handle the context command - detect current Linear issue from git branch
-async fn handle_context(output: &OutputOptions, agent_opts: AgentOptions) -> Result<()> {
+async fn handle_context(output: &OutputOptions, agent_opts: AgentOptions, retry: u32) -> Result<()> {
     // Get current git branch
     let branch_output = std::process::Command::new("git")
         .args(["rev-parse", "--abbrev-ref", "HEAD"])
@@ -921,7 +926,7 @@ async fn handle_context(output: &OutputOptions, agent_opts: AgentOptions) -> Res
             return Ok(());
         }
         // Fetch issue details for JSON output
-        let client = api::LinearClient::new()?;
+        let client = api::LinearClient::new_with_retry(retry)?;
         let query = r#"
             query($id: String!) {
                 issue(id: $id) {
@@ -981,3 +986,7 @@ async fn handle_context(output: &OutputOptions, agent_opts: AgentOptions) -> Res
 
     Ok(())
 }
+
+
+
+

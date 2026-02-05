@@ -4,6 +4,8 @@ use serde_json::{json, Value};
 
 use crate::config;
 use crate::error::CliError;
+use crate::retry::{with_retry, RetryConfig};
+use std::sync::OnceLock;
 
 const LINEAR_API_URL: &str = "https://api.linear.app/graphql";
 
@@ -64,14 +66,26 @@ pub async fn resolve_team_id(client: &LinearClient, team: &str) -> Result<String
 pub struct LinearClient {
     client: Client,
     api_key: String,
+    retry: RetryConfig,
 }
 
 impl LinearClient {
     pub fn new() -> Result<Self> {
+        let retry = default_retry_config();
         let api_key = config::get_api_key()?;
         Ok(Self {
             client: Client::new(),
             api_key,
+            retry,
+        })
+    }
+
+    pub fn new_with_retry(retry_count: u32) -> Result<Self> {
+        let api_key = config::get_api_key()?;
+        Ok(Self {
+            client: Client::new(),
+            api_key,
+            retry: RetryConfig::new(retry_count),
         })
     }
 
@@ -79,10 +93,20 @@ impl LinearClient {
         Self {
             client: Client::new(),
             api_key,
+            retry: default_retry_config(),
         }
     }
 
     pub async fn query(&self, query: &str, variables: Option<Value>) -> Result<Value> {
+        let vars = variables.clone();
+        with_retry(&self.retry, || {
+            let vars = vars.clone();
+            async move { self.query_once(query, vars).await }
+        })
+        .await
+    }
+
+    async fn query_once(&self, query: &str, variables: Option<Value>) -> Result<Value> {
         let body = match variables {
             Some(vars) => json!({ "query": query, "variables": vars }),
             None => json!({ "query": query }),
@@ -142,7 +166,7 @@ impl LinearClient {
     }
 
     pub async fn mutate(&self, mutation: &str, variables: Option<Value>) -> Result<Value> {
-        self.query(mutation, variables).await
+        self.query_once(mutation, variables).await
     }
 
     /// Fetch raw bytes from a URL with authorization header (for Linear uploads)
@@ -196,4 +220,20 @@ impl LinearClient {
             .to_vec();
         Ok(bytes)
     }
+}
+
+
+static DEFAULT_RETRY: OnceLock<RetryConfig> = OnceLock::new();
+
+pub fn set_default_retry(retry_count: u32) {
+    let config = if retry_count == 0 {
+        RetryConfig::no_retry()
+    } else {
+        RetryConfig::new(retry_count)
+    };
+    let _ = DEFAULT_RETRY.set(config);
+}
+
+fn default_retry_config() -> RetryConfig {
+    DEFAULT_RETRY.get().copied().unwrap_or_default()
 }

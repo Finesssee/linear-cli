@@ -8,6 +8,7 @@ use regex::Regex;
 
 use crate::cache::CacheOptions;
 use crate::error::CliError;
+use crate::json_path::get_path;
 use crate::pagination::PaginationOptions;
 use crate::OutputFormat;
 
@@ -281,7 +282,7 @@ fn render_template(template: &str, value: &Value) -> String {
             }
             let parts: Vec<&str> = path.split('.').filter(|p| !p.is_empty()).collect();
             match get_path(value, &parts) {
-                Some(found) => value_to_string(&found),
+                Some(found) => value_to_string(found),
                 None => String::new(),
             }
         })
@@ -362,7 +363,7 @@ fn select_fields(value: &Value, fields: &[String]) -> Value {
                     continue;
                 }
                 if let Some(field_value) = get_path(value, &parts) {
-                    set_path(&mut out, &parts, field_value);
+                    set_path(&mut out, &parts, field_value.clone());
                 }
             }
             Value::Object(out)
@@ -371,13 +372,6 @@ fn select_fields(value: &Value, fields: &[String]) -> Value {
     }
 }
 
-fn get_path(value: &Value, parts: &[&str]) -> Option<Value> {
-    let mut current = value;
-    for part in parts {
-        current = current.get(*part)?;
-    }
-    Some(current.clone())
-}
 
 fn set_path(out: &mut Map<String, Value>, parts: &[&str], value: Value) {
     if parts.is_empty() {
@@ -394,3 +388,4 @@ fn set_path(out: &mut Map<String, Value>, parts: &[&str], value: Value) {
         set_path(map, &parts[1..], value);
     }
 }
+

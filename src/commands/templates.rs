@@ -11,6 +11,7 @@ use tabled::{Table, Tabled};
 
 use crate::display_options;
 use crate::output::{ensure_non_empty, filter_values, print_json, sort_values, OutputOptions};
+use crate::priority::priority_to_string;
 use crate::text::truncate;
 /// Issue template structure for creating issues with predefined values
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -122,17 +123,6 @@ pub async fn handle(cmd: TemplateCommands, output: &OutputOptions) -> Result<()>
     }
 }
 
-fn priority_to_string(priority: Option<i32>) -> String {
-    match priority {
-        Some(0) => "-".to_string(),
-        Some(1) => "Urgent".red().to_string(),
-        Some(2) => "High".yellow().to_string(),
-        Some(3) => "Normal".to_string(),
-        Some(4) => "Low".dimmed().to_string(),
-        None => "-".to_string(),
-        _ => "-".to_string(),
-    }
-}
 
 fn list_templates(output: &OutputOptions) -> Result<()> {
     let store = load_templates()?;
@@ -178,7 +168,7 @@ fn list_templates(output: &OutputOptions) -> Result<()> {
             name: truncate(t["name"].as_str().unwrap_or(""), width),
             title_prefix: truncate(t["title_prefix"].as_str().unwrap_or("-"), width),
             team: truncate(t["team"].as_str().unwrap_or("-"), width),
-            priority: priority_to_string(t["default_priority"].as_i64().map(|p| p as i32)),
+            priority: priority_to_string(t["default_priority"].as_i64()),
             labels: {
                 let labels = t["default_labels"].as_array().cloned().unwrap_or_default();
                 if labels.is_empty() {
@@ -323,7 +313,7 @@ fn show_template(name: &str, output: &OutputOptions) -> Result<()> {
 
     println!(
         "Priority:     {}",
-        priority_to_string(template.default_priority)
+        priority_to_string(template.default_priority.map(|p| p as i64))
     );
 
     println!(

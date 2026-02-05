@@ -1,4 +1,5 @@
 use std::time::Duration;
+use crate::error::CliError;
 use tokio::time::sleep;
 
 /// Retry configuration for API calls
@@ -94,8 +95,29 @@ pub trait IsRetryable {
     fn retry_after(&self) -> Option<u64>;
 }
 
+
+impl IsRetryable for CliError {
+    fn is_retryable(&self) -> bool {
+        let msg = self.message.to_lowercase();
+        self.code == 4
+            || msg.contains("rate limit")
+            || msg.contains("timeout")
+            || msg.contains("temporarily unavailable")
+            || msg.contains("503")
+            || msg.contains("502")
+            || msg.contains("504")
+    }
+
+    fn retry_after(&self) -> Option<u64> {
+        self.retry_after
+    }
+}
+
 impl IsRetryable for anyhow::Error {
     fn is_retryable(&self) -> bool {
+        if let Some(cli) = self.downcast_ref::<CliError>() {
+            return cli.is_retryable();
+        }
         let msg = self.to_string().to_lowercase();
         // Retry on rate limits, timeouts, and transient network errors
         msg.contains("rate limit")
@@ -109,8 +131,8 @@ impl IsRetryable for anyhow::Error {
     }
 
     fn retry_after(&self) -> Option<u64> {
-        // Try to extract retry_after from error chain
-        // This is a simplified version - in practice we'd look at the CliError
-        None
+        self.downcast_ref::<CliError>()
+            .and_then(|cli| cli.retry_after)
     }
 }
+

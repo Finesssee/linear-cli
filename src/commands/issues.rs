@@ -3,13 +3,14 @@ use clap::Subcommand;
 use colored::Colorize;
 use serde_json::{json, Map, Value};
 use std::io::{self, BufRead};
-use std::process::Command;
 use tabled::{Table, Tabled};
 
 use crate::api::{resolve_team_id, LinearClient};
 use crate::display_options;
 use crate::output::{ensure_non_empty, filter_values, print_json, sort_values, OutputOptions};
 use crate::pagination::paginate_nodes;
+use crate::priority::priority_to_string;
+use crate::vcs::{generate_branch_name, run_git_command};
 use crate::text::truncate;
 use crate::AgentOptions;
 
@@ -379,16 +380,6 @@ pub async fn handle(
     }
 }
 
-fn priority_to_string(priority: Option<i64>) -> String {
-    match priority {
-        Some(0) => "-".to_string(),
-        Some(1) => "Urgent".red().to_string(),
-        Some(2) => "High".yellow().to_string(),
-        Some(3) => "Normal".to_string(),
-        Some(4) => "Low".dimmed().to_string(),
-        _ => "-".to_string(),
-    }
-}
 
 #[allow(clippy::too_many_arguments)]
 async fn list_issues(
@@ -1059,42 +1050,11 @@ async fn delete_issue(id: &str, force: bool, agent_opts: AgentOptions) -> Result
 }
 
 // Git helper functions for start command
-fn run_git_command(args: &[&str]) -> Result<String> {
-    let output = Command::new("git").args(args).output()?;
-
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("Git command failed: {}", stderr.trim());
-    }
-}
 
 fn branch_exists(branch: &str) -> bool {
     run_git_command(&["rev-parse", "--verify", branch]).is_ok()
 }
 
-fn generate_branch_name(identifier: &str, title: &str) -> String {
-    // Convert title to kebab-case for branch name
-    let slug: String = title
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_alphanumeric() { c } else { '-' })
-        .collect::<String>()
-        .split('-')
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("-");
-
-    // Truncate if too long
-    let slug = if slug.len() > 50 {
-        slug[..50].trim_end_matches('-').to_string()
-    } else {
-        slug
-    };
-
-    format!("{}/{}", identifier.to_lowercase(), slug)
-}
 
 async fn start_issue(
     id: &str,
