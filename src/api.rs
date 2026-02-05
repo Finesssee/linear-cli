@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
-use reqwest::Client;
+use reqwest::{Client, StatusCode};
+use reqwest::header::HeaderMap;
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -11,6 +12,39 @@ use crate::text::is_uuid;
 use std::sync::OnceLock;
 
 const LINEAR_API_URL: &str = "https://api.linear.app/graphql";
+
+/// Build a CliError from HTTP status code and headers
+fn http_error(status: StatusCode, headers: &HeaderMap, context: &str) -> CliError {
+    let retry_after = headers
+        .get("retry-after")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok());
+    let request_id = headers
+        .get("x-request-id")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.to_string());
+    let details = json!({
+        "status": status.as_u16(),
+        "reason": status.canonical_reason().unwrap_or("Unknown error"),
+        "request_id": request_id,
+    });
+
+    let err = match status.as_u16() {
+        401 => CliError::new(3, "Authentication failed - check your API key"),
+        403 => CliError::new(3, format!("Access denied - {}", context)),
+        404 => CliError::new(2, format!("{} not found", context)),
+        429 => CliError::new(4, "Rate limit exceeded").with_retry_after(retry_after),
+        _ => CliError::new(
+            1,
+            format!(
+                "HTTP {} {}",
+                status.as_u16(),
+                details["reason"].as_str().unwrap_or("Unknown error")
+            ),
+        ),
+    };
+    err.with_details(details)
+}
 
 /// Resolves a team key (like "SCW") or name to a team UUID.
 /// If the input is already a UUID (36 characters with dashes), returns it as-is.
@@ -334,34 +368,7 @@ impl LinearClient {
         let result: Value = response.json().await?;
 
         if !status.is_success() {
-            let retry_after = headers
-                .get("retry-after")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.parse::<u64>().ok());
-            let request_id = headers
-                .get("x-request-id")
-                .and_then(|v| v.to_str().ok())
-                .map(|v| v.to_string());
-            let details = json!({
-                "status": status.as_u16(),
-                "reason": status.canonical_reason().unwrap_or("Unknown error"),
-                "request_id": request_id,
-            });
-            let err = match status.as_u16() {
-                401 => CliError::new(3, "Authentication failed - check your API key"),
-                403 => CliError::new(3, "Access denied - insufficient permissions"),
-                404 => CliError::new(2, "Resource not found"),
-                429 => CliError::new(4, "Rate limit exceeded").with_retry_after(retry_after),
-                _ => CliError::new(
-                    1,
-                    format!(
-                        "HTTP {} {}",
-                        status.as_u16(),
-                        details["reason"].as_str().unwrap_or("Unknown error")
-                    ),
-                ),
-            };
-            return Err(err.with_details(details).into());
+            return Err(http_error(status, &headers, "resource").into());
         }
 
         if let Some(errors) = result.get("errors") {
@@ -389,37 +396,9 @@ impl LinearClient {
             .context("Failed to connect to Linear uploads")?;
 
         let status = response.status();
+        let headers = response.headers().clone();
         if !status.is_success() {
-            let retry_after = response
-                .headers()
-                .get("retry-after")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.parse::<u64>().ok());
-            let request_id = response
-                .headers()
-                .get("x-request-id")
-                .and_then(|v| v.to_str().ok())
-                .map(|v| v.to_string());
-            let details = json!({
-                "status": status.as_u16(),
-                "reason": status.canonical_reason().unwrap_or("Unknown error"),
-                "request_id": request_id,
-            });
-            let err = match status.as_u16() {
-                401 => CliError::new(3, "Authentication failed - check your API key"),
-                403 => CliError::new(3, "Access denied to this upload"),
-                404 => CliError::new(2, "Upload not found"),
-                429 => CliError::new(4, "Rate limit exceeded").with_retry_after(retry_after),
-                _ => CliError::new(
-                    1,
-                    format!(
-                        "HTTP {} {}",
-                        status.as_u16(),
-                        details["reason"].as_str().unwrap_or("Unknown error")
-                    ),
-                ),
-            };
-            return Err(err.with_details(details).into());
+            return Err(http_error(status, &headers, "upload").into());
         }
 
         let bytes: Vec<u8> = response
