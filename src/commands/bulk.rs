@@ -4,10 +4,10 @@ use colored::Colorize;
 use futures::future::join_all;
 use serde_json::json;
 
-use crate::api::LinearClient;
+use crate::api::{resolve_label_id, resolve_user_id, LinearClient};
 use crate::display_options;
 use crate::output::{print_json, OutputOptions};
-use crate::text::truncate;
+use crate::text::{is_uuid, truncate};
 
 #[derive(Subcommand)]
 pub enum BulkCommands {
@@ -64,69 +64,6 @@ struct BulkResult {
     error: Option<String>,
 }
 
-/// Check if a string looks like a UUID (contains dashes and is 36 characters)
-fn is_uuid(s: &str) -> bool {
-    s.len() == 36 && s.chars().filter(|c| *c == '-').count() == 4
-}
-
-/// Resolve a user identifier to a UUID.
-/// Handles "me", UUIDs, names, and emails.
-async fn resolve_user_id(client: &LinearClient, user: &str) -> Result<String> {
-    // Handle "me" - get the current viewer's ID
-    if user.eq_ignore_ascii_case("me") {
-        let query = r#"
-            query {
-                viewer {
-                    id
-                }
-            }
-        "#;
-        let result = client.query(query, None).await?;
-        let user_id = result["data"]["viewer"]["id"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Could not fetch current user ID"))?;
-        return Ok(user_id.to_string());
-    }
-
-    // If already a UUID, return as-is
-    if is_uuid(user) {
-        return Ok(user.to_string());
-    }
-
-    // Try to find user by name or email
-    let query = r#"
-        query {
-            users(first: 100) {
-                nodes {
-                    id
-                    name
-                    email
-                }
-            }
-        }
-    "#;
-
-    let result = client.query(query, None).await?;
-    let empty = vec![];
-    let users = result["data"]["users"]["nodes"]
-        .as_array()
-        .unwrap_or(&empty);
-
-    // Try to match by name (case-insensitive) or email
-    for u in users {
-        let name = u["name"].as_str().unwrap_or("");
-        let email = u["email"].as_str().unwrap_or("");
-
-        if name.eq_ignore_ascii_case(user) || email.eq_ignore_ascii_case(user) {
-            if let Some(id) = u["id"].as_str() {
-                return Ok(id.to_string());
-            }
-        }
-    }
-
-    anyhow::bail!("User not found: {}", user)
-}
-
 /// Resolve a state name to a UUID for a given team.
 async fn resolve_state_id(client: &LinearClient, team_id: &str, state: &str) -> Result<String> {
     // If already a UUID, return as-is
@@ -167,44 +104,6 @@ async fn resolve_state_id(client: &LinearClient, team_id: &str, state: &str) -> 
     }
 
     anyhow::bail!("State '{}' not found for team", state)
-}
-
-/// Resolve a label name to a UUID.
-async fn resolve_label_id(client: &LinearClient, label: &str) -> Result<String> {
-    // If already a UUID, return as-is
-    if is_uuid(label) {
-        return Ok(label.to_string());
-    }
-
-    // Fetch all labels
-    let query = r#"
-        query {
-            issueLabels(first: 250) {
-                nodes {
-                    id
-                    name
-                }
-            }
-        }
-    "#;
-
-    let result = client.query(query, None).await?;
-    let empty = vec![];
-    let labels = result["data"]["issueLabels"]["nodes"]
-        .as_array()
-        .unwrap_or(&empty);
-
-    // Try to match by name (case-insensitive)
-    for l in labels {
-        let name = l["name"].as_str().unwrap_or("");
-        if name.eq_ignore_ascii_case(label) {
-            if let Some(id) = l["id"].as_str() {
-                return Ok(id.to_string());
-            }
-        }
-    }
-
-    anyhow::bail!("Label not found: {}", label)
 }
 
 /// Get issue details including UUID and team ID from identifier (e.g., "LIN-123")
@@ -323,7 +222,7 @@ async fn bulk_assign(user: &str, issues: Vec<String>, output: &OutputOptions) ->
     let client = LinearClient::new()?;
 
     // Resolve the user ID once upfront
-    let user_id = match resolve_user_id(&client, user).await {
+    let user_id = match resolve_user_id(&client, user, &output.cache).await {
         Ok(id) => id,
         Err(e) => {
             if output.is_json() || output.has_template() {
@@ -379,7 +278,7 @@ async fn bulk_label(label: &str, issues: Vec<String>, output: &OutputOptions) ->
     let client = LinearClient::new()?;
 
     // Resolve the label ID once upfront
-    let label_id = match resolve_label_id(&client, label).await {
+    let label_id = match resolve_label_id(&client, label, &output.cache).await {
         Ok(id) => id,
         Err(e) => {
             if output.is_json() || output.has_template() {

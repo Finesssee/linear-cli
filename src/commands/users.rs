@@ -51,7 +51,7 @@ async fn list_users(team: Option<String>, output: &OutputOptions) -> Result<()> 
 
     let users: Vec<Value> = if let Some(ref team_key) = team {
         let client = LinearClient::new()?;
-        let team_id = resolve_team_id(&client, team_key).await?;
+        let team_id = resolve_team_id(&client, team_key, &output.cache).await?;
         let pagination = output.pagination.with_default_limit(100);
         let query = r#"
             query($teamId: String!, $first: Int, $after: String, $last: Int, $before: String) {

@@ -21,3 +21,7 @@ pub fn truncate(value: &str, max_len: Option<usize>) -> String {
 
     out
 }
+
+pub fn is_uuid(value: &str) -> bool {
+    value.len() == 36 && value.matches("-").count() == 4
+}

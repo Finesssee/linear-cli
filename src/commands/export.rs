@@ -5,6 +5,7 @@ use std::io::Write;
 
 use crate::api::LinearClient;
 use crate::output::OutputOptions;
+use crate::pagination::{paginate_nodes, PaginationOptions};
 
 #[derive(Subcommand, Debug)]
 pub enum ExportCommands {
@@ -19,6 +20,12 @@ pub enum ExportCommands {
         /// Include completed issues
         #[arg(long)]
         include_completed: bool,
+        /// Limit number of issues (default: 250, ignored with --all)
+        #[arg(long)]
+        limit: Option<usize>,
+        /// Export all matching issues
+        #[arg(long)]
+        all: bool,
     },
     /// Export issues to Markdown
     Markdown {
@@ -28,6 +35,12 @@ pub enum ExportCommands {
         /// Output file (default: stdout)
         #[arg(short, long)]
         file: Option<String>,
+        /// Limit number of issues (default: 250, ignored with --all)
+        #[arg(long)]
+        limit: Option<usize>,
+        /// Export all matching issues
+        #[arg(long)]
+        all: bool,
     },
 }
 
@@ -37,8 +50,12 @@ pub async fn handle(cmd: ExportCommands, _output: &OutputOptions) -> Result<()> 
             team,
             file,
             include_completed,
-        } => export_csv(team, file, include_completed).await,
-        ExportCommands::Markdown { team, file } => export_markdown(team, file).await,
+            limit,
+            all,
+        } => export_csv(team, file, include_completed, limit, all).await,
+        ExportCommands::Markdown { team, file, limit, all } => {
+            export_markdown(team, file, limit, all).await
+        }
     }
 }
 
@@ -46,12 +63,14 @@ async fn export_csv(
     team: Option<String>,
     file: Option<String>,
     include_completed: bool,
+    limit: Option<usize>,
+    all: bool,
 ) -> Result<()> {
     let client = LinearClient::new()?;
 
     let query = r#"
-        query($filter: IssueFilter) {
-            issues(first: 250, filter: $filter) {
+        query($filter: IssueFilter, $first: Int, $after: String, $last: Int, $before: String) {
+            issues(first: $first, after: $after, last: $last, before: $before, filter: $filter) {
                 nodes {
                     identifier
                     title
@@ -80,13 +99,27 @@ async fn export_csv(
         filter["state"] = json!({ "type": { "neq": "completed" } });
     }
 
-    let result = client
-        .query(query, Some(json!({ "filter": filter })))
-        .await?;
-    let issues = result["data"]["issues"]["nodes"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
+    let mut vars = serde_json::Map::new();
+    vars.insert("filter".to_string(), filter);
+
+    let mut pagination = PaginationOptions::default();
+    pagination.page_size = Some(250);
+    if all {
+        pagination.all = true;
+    } else {
+        pagination.limit = Some(limit.unwrap_or(250));
+    }
+
+    let issues = paginate_nodes(
+        &client,
+        query,
+        vars,
+        &["data", "issues", "nodes"],
+        &["data", "issues", "pageInfo"],
+        &pagination,
+        250,
+    )
+    .await?;
 
     let mut output: Box<dyn Write> = if let Some(ref path) = file {
         Box::new(std::fs::File::create(path)?)
@@ -133,12 +166,17 @@ async fn export_csv(
     Ok(())
 }
 
-async fn export_markdown(team: Option<String>, file: Option<String>) -> Result<()> {
+async fn export_markdown(
+    team: Option<String>,
+    file: Option<String>,
+    limit: Option<usize>,
+    all: bool,
+) -> Result<()> {
     let client = LinearClient::new()?;
 
     let query = r#"
-        query($filter: IssueFilter) {
-            issues(first: 250, filter: $filter) {
+        query($filter: IssueFilter, $first: Int, $after: String, $last: Int, $before: String) {
+            issues(first: $first, after: $after, last: $last, before: $before, filter: $filter) {
                 nodes {
                     identifier
                     title
@@ -158,13 +196,27 @@ async fn export_markdown(team: Option<String>, file: Option<String>) -> Result<(
         filter["team"] = json!({ "key": { "eq": t } });
     }
 
-    let result = client
-        .query(query, Some(json!({ "filter": filter })))
-        .await?;
-    let issues = result["data"]["issues"]["nodes"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
+    let mut vars = serde_json::Map::new();
+    vars.insert("filter".to_string(), filter);
+
+    let mut pagination = PaginationOptions::default();
+    pagination.page_size = Some(250);
+    if all {
+        pagination.all = true;
+    } else {
+        pagination.limit = Some(limit.unwrap_or(250));
+    }
+
+    let issues = paginate_nodes(
+        &client,
+        query,
+        vars,
+        &["data", "issues", "nodes"],
+        &["data", "issues", "pageInfo"],
+        &pagination,
+        250,
+    )
+    .await?;
 
     let mut output: Box<dyn Write> = if let Some(ref path) = file {
         Box::new(std::fs::File::create(path)?)

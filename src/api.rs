@@ -2,25 +2,34 @@ use anyhow::{Context, Result};
 use reqwest::Client;
 use serde_json::{json, Value};
 
+use crate::cache::{Cache, CacheOptions, CacheType};
 use crate::config;
 use crate::error::CliError;
 use crate::retry::{with_retry, RetryConfig};
+use crate::text::is_uuid;
 use std::sync::OnceLock;
 
 const LINEAR_API_URL: &str = "https://api.linear.app/graphql";
 
 /// Resolves a team key (like "SCW") or name to a team UUID.
 /// If the input is already a UUID (36 characters with dashes), returns it as-is.
-pub async fn resolve_team_id(client: &LinearClient, team: &str) -> Result<String> {
-    // If already a UUID (36 chars with dashes pattern), return as-is
-    if team.len() == 36 && team.chars().filter(|c| *c == '-').count() == 4 {
+pub async fn resolve_team_id(client: &LinearClient, team: &str, cache_opts: &CacheOptions) -> Result<String> {
+    if is_uuid(team) {
         return Ok(team.to_string());
     }
 
-    // Query to find team by key or name
+    if !cache_opts.no_cache {
+        let cache = Cache::new()?;
+        if let Some(cached) = cache.get(CacheType::Teams).and_then(|data| data.as_array().cloned()) {
+            if let Some(id) = find_team_id(&cached, team) {
+                return Ok(id);
+            }
+        }
+    }
+
     let query = r#"
-        query {
-            teams(first: 100) {
+        query($team: String!) {
+            teams(first: 50, filter: { or: [{ key: { eqIgnoreCase: $team } }, { name: { eqIgnoreCase: $team } }] }) {
                 nodes {
                     id
                     key
@@ -30,38 +39,231 @@ pub async fn resolve_team_id(client: &LinearClient, team: &str) -> Result<String
         }
     "#;
 
-    let result = client.query(query, None).await?;
+    let result = client.query(query, Some(json!({ "team": team }))).await?;
     let empty = vec![];
-    let teams = result["data"]["teams"]["nodes"]
-        .as_array()
-        .unwrap_or(&empty);
+    let teams = result["data"]["teams"]["nodes"].as_array().unwrap_or(&empty);
 
-    // First try exact key match (case-insensitive)
-    if let Some(team_data) = teams
-        .iter()
-        .find(|t| t["key"].as_str().map(|k| k.eq_ignore_ascii_case(team)) == Some(true))
-    {
-        if let Some(id) = team_data["id"].as_str() {
-            return Ok(id.to_string());
+    if let Some(id) = find_team_id(teams, team) {
+        if !cache_opts.no_cache {
+            let cache = Cache::with_ttl(cache_opts.effective_ttl_seconds())?;
+            let _ = cache.set(CacheType::Teams, json!(teams));
         }
+        return Ok(id);
     }
 
-    // Then try exact name match (case-insensitive)
-    if let Some(team_data) = teams
-        .iter()
-        .find(|t| t["name"].as_str().map(|n| n.eq_ignore_ascii_case(team)) == Some(true))
-    {
-        if let Some(id) = team_data["id"].as_str() {
-            return Ok(id.to_string());
+    let query_all = r#"
+        query {
+            teams(first: 500) {
+                nodes {
+                    id
+                    key
+                    name
+                }
+            }
         }
+    "#;
+
+    let result = client.query(query_all, None).await?;
+    let teams = result["data"]["teams"]["nodes"].as_array().unwrap_or(&empty);
+
+    if !cache_opts.no_cache {
+        let cache = Cache::with_ttl(cache_opts.effective_ttl_seconds())?;
+        let _ = cache.set(CacheType::Teams, json!(teams));
     }
 
-    anyhow::bail!(
-        "Team not found: '{}'. Use 'linear-cli t list' to see available teams.",
-        team
-    )
+    if let Some(id) = find_team_id(teams, team) {
+        return Ok(id);
+    }
+
+    anyhow::bail!("Team not found: {}. Use linear-cli t list to see available teams.", team)
 }
 
+/// Resolve a user identifier to a UUID.
+/// Handles "me", UUIDs, names, and emails.
+pub async fn resolve_user_id(client: &LinearClient, user: &str, cache_opts: &CacheOptions) -> Result<String> {
+    if user.eq_ignore_ascii_case("me") {
+        let query = r#"
+            query {
+                viewer {
+                    id
+                }
+            }
+        "#;
+        let result = client.query(query, None).await?;
+        let user_id = result["data"]["viewer"]["id"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("Could not fetch current user ID"))?;
+        return Ok(user_id.to_string());
+    }
+
+    if is_uuid(user) {
+        return Ok(user.to_string());
+    }
+
+    if !cache_opts.no_cache {
+        let cache = Cache::new()?;
+        if let Some(cached) = cache.get(CacheType::Users).and_then(|data| data.as_array().cloned()) {
+            if let Some(id) = find_user_id(&cached, user) {
+                return Ok(id);
+            }
+        }
+    }
+
+    let query = r#"
+        query($user: String!) {
+            users(first: 50, filter: { or: [{ name: { eqIgnoreCase: $user } }, { email: { eqIgnoreCase: $user } }] }) {
+                nodes {
+                    id
+                    name
+                    email
+                }
+            }
+        }
+    "#;
+
+    let result = client.query(query, Some(json!({ "user": user }))).await?;
+    let empty = vec![];
+    let users = result["data"]["users"]["nodes"].as_array().unwrap_or(&empty);
+
+    if let Some(id) = find_user_id(users, user) {
+        if !cache_opts.no_cache {
+            let cache = Cache::with_ttl(cache_opts.effective_ttl_seconds())?;
+            let _ = cache.set(CacheType::Users, json!(users));
+        }
+        return Ok(id);
+    }
+
+    let query_all = r#"
+        query {
+            users(first: 500) {
+                nodes {
+                    id
+                    name
+                    email
+                }
+            }
+        }
+    "#;
+
+    let result = client.query(query_all, None).await?;
+    let users = result["data"]["users"]["nodes"].as_array().unwrap_or(&empty);
+
+    if !cache_opts.no_cache {
+        let cache = Cache::with_ttl(cache_opts.effective_ttl_seconds())?;
+        let _ = cache.set(CacheType::Users, json!(users));
+    }
+
+    if let Some(id) = find_user_id(users, user) {
+        return Ok(id);
+    }
+
+    anyhow::bail!("User not found: {}", user)
+}
+
+/// Resolve a label name to a UUID.
+pub async fn resolve_label_id(client: &LinearClient, label: &str, cache_opts: &CacheOptions) -> Result<String> {
+    if is_uuid(label) {
+        return Ok(label.to_string());
+    }
+
+    if !cache_opts.no_cache {
+        let cache = Cache::new()?;
+        if let Some(cached) = cache.get(CacheType::Labels).and_then(|data| data.as_array().cloned()) {
+            if let Some(id) = find_label_id(&cached, label) {
+                return Ok(id);
+            }
+        }
+    }
+
+    let query = r#"
+        query($label: String!) {
+            issueLabels(first: 50, filter: { name: { eqIgnoreCase: $label } }) {
+                nodes {
+                    id
+                    name
+                }
+            }
+        }
+    "#;
+
+    let result = client.query(query, Some(json!({ "label": label }))).await?;
+    let empty = vec![];
+    let labels = result["data"]["issueLabels"]["nodes"].as_array().unwrap_or(&empty);
+
+    if let Some(id) = find_label_id(labels, label) {
+        if !cache_opts.no_cache {
+            let cache = Cache::with_ttl(cache_opts.effective_ttl_seconds())?;
+            let _ = cache.set(CacheType::Labels, json!(labels));
+        }
+        return Ok(id);
+    }
+
+    let query_all = r#"
+        query {
+            issueLabels(first: 500) {
+                nodes {
+                    id
+                    name
+                }
+            }
+        }
+    "#;
+
+    let result = client.query(query_all, None).await?;
+    let labels = result["data"]["issueLabels"]["nodes"].as_array().unwrap_or(&empty);
+
+    if !cache_opts.no_cache {
+        let cache = Cache::with_ttl(cache_opts.effective_ttl_seconds())?;
+        let _ = cache.set(CacheType::Labels, json!(labels));
+    }
+
+    if let Some(id) = find_label_id(labels, label) {
+        return Ok(id);
+    }
+
+    anyhow::bail!("Label not found: {}", label)
+}
+
+fn find_team_id(teams: &[Value], team: &str) -> Option<String> {
+    if let Some(team_data) = teams.iter().find(|t| t["key"].as_str().map(|k| k.eq_ignore_ascii_case(team)) == Some(true)) {
+        if let Some(id) = team_data["id"].as_str() {
+            return Some(id.to_string());
+        }
+    }
+
+    if let Some(team_data) = teams.iter().find(|t| t["name"].as_str().map(|n| n.eq_ignore_ascii_case(team)) == Some(true)) {
+        if let Some(id) = team_data["id"].as_str() {
+            return Some(id.to_string());
+        }
+    }
+
+    None
+}
+
+fn find_user_id(users: &[Value], user: &str) -> Option<String> {
+    for u in users {
+        let name = u["name"].as_str().unwrap_or("");
+        let email = u["email"].as_str().unwrap_or("");
+        if name.eq_ignore_ascii_case(user) || email.eq_ignore_ascii_case(user) {
+            if let Some(id) = u["id"].as_str() {
+                return Some(id.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn find_label_id(labels: &[Value], label: &str) -> Option<String> {
+    for l in labels {
+        let name = l["name"].as_str().unwrap_or("");
+        if name.eq_ignore_ascii_case(label) {
+            if let Some(id) = l["id"].as_str() {
+                return Some(id.to_string());
+            }
+        }
+    }
+    None
+}
 #[derive(Clone)]
 pub struct LinearClient {
     client: Client,

@@ -11,6 +11,7 @@ mod json_path;
 mod vcs;
 mod retry;
 mod text;
+mod input;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};

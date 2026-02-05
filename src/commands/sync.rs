@@ -511,7 +511,7 @@ async fn push_command(
     let client = LinearClient::new()?;
 
     // Resolve team key/name to UUID
-    let team_id = resolve_team_id(&client, &team).await?;
+    let team_id = resolve_team_id(&client, &team, cache_opts).await?;
 
     if dry_run {
         println!(

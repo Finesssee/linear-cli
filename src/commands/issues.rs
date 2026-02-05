@@ -7,6 +7,7 @@ use tabled::{Table, Tabled};
 
 use crate::api::{resolve_team_id, LinearClient};
 use crate::display_options;
+use crate::input::read_ids_from_stdin;
 use crate::output::{ensure_non_empty, filter_values, print_json, sort_values, OutputOptions};
 use crate::pagination::paginate_nodes;
 use crate::priority::priority_to_string;
@@ -209,19 +210,7 @@ pub async fn handle(
         } => list_issues(team, state, assignee, project, archived, output, agent_opts).await,
         IssueCommands::Get { ids } => {
             // Support reading from stdin if no IDs provided or if "-" is passed
-            let final_ids: Vec<String> = if ids.is_empty() || (ids.len() == 1 && ids[0] == "-") {
-                // Read from stdin
-                let stdin = io::stdin();
-                stdin
-                    .lock()
-                    .lines()
-                    .map_while(Result::ok)
-                    .filter(|l| !l.trim().is_empty())
-                    .map(|l| l.trim().to_string())
-                    .collect()
-            } else {
-                ids
-            };
+            let final_ids = read_ids_from_stdin(ids);
             if final_ids.is_empty() {
                 anyhow::bail!(
                     "No issue IDs provided. Provide IDs as arguments or pipe them via stdin."
@@ -694,7 +683,7 @@ async fn create_issue(
     let final_team = team;
 
     // Resolve team key/name to UUID
-    let team_id = resolve_team_id(&client, final_team).await?;
+    let team_id = resolve_team_id(&client, final_team, &output.cache).await?;
 
     // Build the title with optional prefix from template
     let final_title = title.to_string();
