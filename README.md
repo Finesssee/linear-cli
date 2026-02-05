@@ -16,7 +16,9 @@ A fast, powerful command-line interface for [Linear](https://linear.app) built w
 - **Profiles & Auth** - Named profiles with `auth login/logout/status`
 - **Bulk Operations** - Perform actions on multiple issues at once
 - **JSON/NDJSON Output** - Machine-readable output for scripting and agents
+- **Smart Sorting** - Numeric and date-aware sorting (10 > 9, not "10" < "9")
 - **Pagination & Filters** - `--limit`, `--page-size`, `--all`, `--filter`
+- **Reliable** - HTTP timeouts, jittered retries, atomic cache writes
 - **Diagnostics** - `doctor` command for config and connectivity checks
 - **Fast** - Native Rust binary, no runtime dependencies
 
@@ -102,8 +104,8 @@ linear-cli g pr LIN-123 --draft            # Create draft PR
 linear-cli s issues "auth bug"             # Search issues
 
 # Export
-linear-cli export issues -t ENG -o issues.json  # Export to JSON
-linear-cli export issues -t ENG --csv           # Export to CSV
+linear-cli export csv -t ENG -f issues.csv    # Export to CSV (RFC 4180)
+linear-cli export markdown -t ENG             # Export to Markdown
 
 # Relations
 linear-cli rel add LIN-123 blocks LIN-456       # LIN-123 blocks LIN-456
@@ -147,6 +149,8 @@ export LINEAR_CLI_PROFILE=work
 ```
 
 Config stored at `~/.config/linear-cli/config.toml` (Linux/macOS) or `%APPDATA%\linear-cli\config.toml` (Windows).
+
+Cache is scoped per profile at `~/.config/linear-cli/cache/{profile}/`.
 
 ## Documentation
 
