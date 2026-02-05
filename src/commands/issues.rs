@@ -483,7 +483,7 @@ async fn list_issues(
     Ok(())
 }
 
-/// Get multiple issues (supports batch fetching)
+/// Get multiple issues (supports batch fetching with concurrency limit)
 async fn get_issues(ids: &[String], output: &OutputOptions) -> Result<()> {
     // Handle single ID (most common case)
     if ids.len() == 1 {
@@ -492,12 +492,13 @@ async fn get_issues(ids: &[String], output: &OutputOptions) -> Result<()> {
 
     let client = LinearClient::new()?;
 
-    // For multiple IDs, fetch them in parallel
-    let futures: Vec<_> = ids
-        .iter()
+    // Limit concurrent requests to avoid rate limiting and socket exhaustion
+    use futures::stream::{self, StreamExt};
+    const MAX_CONCURRENT: usize = 10;
+
+    let results: Vec<_> = stream::iter(ids.iter().cloned())
         .map(|id| {
             let client = client.clone();
-            let id = id.clone();
             async move {
                 let query = r#"
                     query($id: String!) {
@@ -518,9 +519,9 @@ async fn get_issues(ids: &[String], output: &OutputOptions) -> Result<()> {
                 (id, result)
             }
         })
-        .collect();
-
-    let results = futures::future::join_all(futures).await;
+        .buffer_unordered(MAX_CONCURRENT)
+        .collect()
+        .await;
 
     // JSON output: array of issues
     if output.is_json() || output.has_template() {
