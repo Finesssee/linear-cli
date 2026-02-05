@@ -50,9 +50,9 @@ impl RetryConfig {
             .min(self.max_delay_ms as f64) as u64;
 
         // Add ±25% jitter to avoid thundering herd
-        let jitter_range = delay_ms / 4;
+        let jitter_range = (delay_ms / 4) as i64;
         let jitter = if jitter_range > 0 {
-            rand::thread_rng().gen_range(0..=jitter_range * 2) as i64 - jitter_range as i64
+            rand::thread_rng().gen_range(-jitter_range..=jitter_range)
         } else {
             0
         };
