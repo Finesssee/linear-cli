@@ -320,16 +320,81 @@ fn has_object_key(value: &Value, key: &str) -> bool {
 fn compare_json_field(a: &Value, b: &Value, key: &str) -> Ordering {
     let a_key = extract_sort_key(a, key);
     let b_key = extract_sort_key(b, key);
-    a_key.cmp(&b_key)
+    a_key.partial_cmp(&b_key).unwrap_or(Ordering::Equal)
 }
 
-fn extract_sort_key(value: &Value, key: &str) -> String {
-    match value.get(key) {
-        Some(Value::String(s)) => s.to_lowercase(),
-        Some(Value::Number(n)) => n.to_string(),
-        Some(Value::Bool(b)) => b.to_string(),
-        Some(Value::Null) | None => String::new(),
-        Some(other) => other.to_string(),
+#[derive(Debug, PartialEq)]
+enum SortKey {
+    Int(i64),
+    Float(f64),
+    DateTime(i64),
+    String(String),
+    Null,
+}
+
+impl PartialOrd for SortKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            (SortKey::Int(a), SortKey::Int(b)) => a.partial_cmp(b),
+            (SortKey::Float(a), SortKey::Float(b)) => a.partial_cmp(b),
+            (SortKey::DateTime(a), SortKey::DateTime(b)) => a.partial_cmp(b),
+            (SortKey::String(a), SortKey::String(b)) => a.partial_cmp(b),
+            (SortKey::Null, SortKey::Null) => Some(Ordering::Equal),
+            // Nulls sort last
+            (SortKey::Null, _) => Some(Ordering::Greater),
+            (_, SortKey::Null) => Some(Ordering::Less),
+            // Mixed numeric types: convert to float for comparison
+            (SortKey::Int(a), SortKey::Float(b)) => (*a as f64).partial_cmp(b),
+            (SortKey::Float(a), SortKey::Int(b)) => a.partial_cmp(&(*b as f64)),
+            // Different types: fall back to string comparison
+            _ => {
+                let a_str = self.to_string_for_cmp();
+                let b_str = other.to_string_for_cmp();
+                a_str.partial_cmp(&b_str)
+            }
+        }
+    }
+}
+
+impl SortKey {
+    fn to_string_for_cmp(&self) -> String {
+        match self {
+            SortKey::Int(n) => n.to_string(),
+            SortKey::Float(n) => n.to_string(),
+            SortKey::DateTime(ts) => ts.to_string(),
+            SortKey::String(s) => s.clone(),
+            SortKey::Null => String::new(),
+        }
+    }
+}
+
+fn extract_sort_key(value: &Value, key: &str) -> SortKey {
+    let v = match value.get(key) {
+        Some(v) => v,
+        None => return SortKey::Null,
+    };
+
+    match v {
+        Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                SortKey::Int(i)
+            } else if let Some(f) = n.as_f64() {
+                SortKey::Float(f)
+            } else {
+                SortKey::String(n.to_string())
+            }
+        }
+        Value::String(s) => {
+            // Try parsing as RFC3339 date
+            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+                SortKey::DateTime(dt.timestamp())
+            } else {
+                SortKey::String(s.to_lowercase())
+            }
+        }
+        Value::Bool(b) => SortKey::String(b.to_string()),
+        Value::Null => SortKey::Null,
+        other => SortKey::String(other.to_string()),
     }
 }
 
