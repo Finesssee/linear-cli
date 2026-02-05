@@ -454,3 +454,73 @@ fn set_path(out: &mut Map<String, Value>, parts: &[&str], value: Value) {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_filter_eq() {
+        let filters = parse_filters(&["status=Done".to_string()]).unwrap();
+        assert_eq!(filters.len(), 1);
+        assert_eq!(filters[0].path, vec!["status"]);
+        assert!(matches!(filters[0].op, FilterOp::Eq));
+        assert_eq!(filters[0].value, "Done");
+    }
+
+    #[test]
+    fn test_parse_filter_not_eq() {
+        let filters = parse_filters(&["priority!=1".to_string()]).unwrap();
+        assert_eq!(filters.len(), 1);
+        assert!(matches!(filters[0].op, FilterOp::NotEq));
+        assert_eq!(filters[0].value, "1");
+    }
+
+    #[test]
+    fn test_parse_filter_contains() {
+        let filters = parse_filters(&["title~=bug".to_string()]).unwrap();
+        assert_eq!(filters.len(), 1);
+        assert!(matches!(filters[0].op, FilterOp::Contains));
+        assert_eq!(filters[0].value, "bug");
+    }
+
+    #[test]
+    fn test_parse_filter_nested_path() {
+        let filters = parse_filters(&["state.name=In Progress".to_string()]).unwrap();
+        assert_eq!(filters.len(), 1);
+        assert_eq!(filters[0].path, vec!["state", "name"]);
+        assert_eq!(filters[0].value, "In Progress");
+    }
+
+    #[test]
+    fn test_parse_filter_multiple() {
+        let filters = parse_filters(&[
+            "status=Done".to_string(),
+            "priority!=1".to_string(),
+        ]).unwrap();
+        assert_eq!(filters.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_filter_empty_skipped() {
+        let filters = parse_filters(&["".to_string(), "  ".to_string()]).unwrap();
+        assert!(filters.is_empty());
+    }
+
+    #[test]
+    fn test_parse_filter_invalid() {
+        let result = parse_filters(&["invalid-filter".to_string()]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_filter_missing_path() {
+        let result = parse_filters(&["=value".to_string()]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sort_order_default() {
+        assert_eq!(SortOrder::default(), SortOrder::Asc);
+    }
+}
+

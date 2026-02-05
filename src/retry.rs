@@ -146,3 +146,98 @@ impl IsRetryable for anyhow::Error {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_retry_config_default() {
+        let config = RetryConfig::default();
+        assert_eq!(config.max_retries, 3);
+        assert_eq!(config.initial_delay_ms, 1000);
+        assert_eq!(config.max_delay_ms, 30000);
+    }
+
+    #[test]
+    fn test_retry_config_new() {
+        let config = RetryConfig::new(5);
+        assert_eq!(config.max_retries, 5);
+    }
+
+    #[test]
+    fn test_retry_config_no_retry() {
+        let config = RetryConfig::no_retry();
+        assert_eq!(config.max_retries, 0);
+    }
+
+    #[test]
+    fn test_delay_with_retry_after() {
+        let config = RetryConfig::default();
+        let delay = config.delay_for_attempt(0, Some(10));
+        assert_eq!(delay, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn test_delay_exponential_backoff() {
+        let config = RetryConfig {
+            max_retries: 3,
+            initial_delay_ms: 1000,
+            max_delay_ms: 30000,
+            exponential_base: 2.0,
+        };
+
+        // Attempt 0: ~1000ms (with jitter)
+        let delay0 = config.delay_for_attempt(0, None);
+        assert!(delay0.as_millis() >= 750 && delay0.as_millis() <= 1250);
+
+        // Attempt 1: ~2000ms (with jitter)
+        let delay1 = config.delay_for_attempt(1, None);
+        assert!(delay1.as_millis() >= 1500 && delay1.as_millis() <= 2500);
+
+        // Attempt 2: ~4000ms (with jitter)
+        let delay2 = config.delay_for_attempt(2, None);
+        assert!(delay2.as_millis() >= 3000 && delay2.as_millis() <= 5000);
+    }
+
+    #[test]
+    fn test_delay_capped_at_max() {
+        let config = RetryConfig {
+            max_retries: 10,
+            initial_delay_ms: 1000,
+            max_delay_ms: 5000,
+            exponential_base: 2.0,
+        };
+
+        // Attempt 10 would be 1000 * 2^10 = 1024000ms, but should be capped
+        let delay = config.delay_for_attempt(10, None);
+        assert!(delay.as_millis() <= 6250); // max + 25% jitter
+    }
+
+    #[test]
+    fn test_cli_error_retryable() {
+        let rate_limit = CliError::new(4, "Rate limit exceeded");
+        assert!(rate_limit.is_retryable());
+
+        let timeout = CliError::new(1, "Request timeout");
+        assert!(timeout.is_retryable());
+
+        let server_error = CliError::new(1, "503 Service Unavailable");
+        assert!(server_error.is_retryable());
+
+        let auth_error = CliError::new(3, "Authentication failed");
+        assert!(!auth_error.is_retryable());
+
+        let not_found = CliError::new(2, "Issue not found");
+        assert!(!not_found.is_retryable());
+    }
+
+    #[test]
+    fn test_cli_error_retry_after() {
+        let err = CliError::new(4, "Rate limited").with_retry_after(Some(30));
+        assert_eq!(err.retry_after(), Some(30));
+
+        let err_no_retry = CliError::new(1, "Error");
+        assert_eq!(err_no_retry.retry_after(), None);
+    }
+}
+
