@@ -159,7 +159,7 @@ async fn status(validate: bool, output: &OutputOptions) -> Result<()> {
 }
 
 async fn validate_key(key: &str) -> Result<()> {
-    let client = LinearClient::with_api_key(key.to_string());
+    let client = LinearClient::with_api_key(key.to_string())?;
     let query = r#"
         query {
             viewer {
