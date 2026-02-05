@@ -52,16 +52,17 @@ npx skills add Finesssee/linear-cli --skill linear-list
 npx skills add Finesssee/linear-cli --skill linear-workflow
 ```
 
-**Available skills:**
-| Skill | Description |
-|-------|-------------|
-| `linear-list` | List and get issues |
-| `linear-create` | Create issues |
-| `linear-update` | Update issues (status, priority, assignee, labels) |
-| `linear-workflow` | Start/stop work, get current issue context |
-| `linear-pr` | Create GitHub PRs linked to Linear issues |
-| `linear-search` | Search issues and projects |
-| `linear-uploads` | Download attachments and images |
+**27 skills covering all CLI features:**
+
+| Category | Skills |
+|----------|--------|
+| **Issues** | `linear-list`, `linear-create`, `linear-update`, `linear-workflow` |
+| **Git** | `linear-git`, `linear-pr` |
+| **Planning** | `linear-projects`, `linear-roadmaps`, `linear-initiatives`, `linear-cycles` |
+| **Organization** | `linear-teams`, `linear-labels`, `linear-relations`, `linear-templates` |
+| **Operations** | `linear-bulk`, `linear-export`, `linear-triage`, `linear-favorites` |
+| **Tracking** | `linear-metrics`, `linear-history`, `linear-time`, `linear-watch` |
+| **Other** | `linear-search`, `linear-notifications`, `linear-documents`, `linear-uploads`, `linear-config` |
 
 Skills are 10-50x more token-efficient than MCP tools.
 
