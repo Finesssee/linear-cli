@@ -1,11 +1,12 @@
 use anyhow::Result;
 use clap::Subcommand;
+use csv::Writer;
 use serde_json::json;
 use std::io::Write;
 
 use crate::api::LinearClient;
 use crate::output::OutputOptions;
-use crate::pagination::{paginate_nodes, PaginationOptions};
+use crate::pagination::{paginate_nodes, stream_nodes, PaginationOptions};
 
 #[derive(Subcommand, Debug)]
 pub enum ExportCommands {
@@ -87,6 +88,12 @@ async fn export_csv(
                     project { name }
                     cycle { number name }
                 }
+                pageInfo {
+                    hasNextPage
+                    endCursor
+                    hasPreviousPage
+                    startCursor
+                }
             }
         }
     "#;
@@ -110,7 +117,40 @@ async fn export_csv(
         pagination.limit = Some(limit.unwrap_or(250));
     }
 
-    let issues = paginate_nodes(
+    // Use RefCell to allow mutable access to the writer from the closure
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    let wtr: Rc<RefCell<Writer<Box<dyn Write>>>> = if let Some(ref path) = file {
+        Rc::new(RefCell::new(Writer::from_writer(Box::new(
+            std::fs::File::create(path)?,
+        ))))
+    } else {
+        Rc::new(RefCell::new(Writer::from_writer(Box::new(
+            std::io::stdout(),
+        ))))
+    };
+
+    // Write CSV header
+    wtr.borrow_mut().write_record([
+        "Identifier",
+        "Title",
+        "Status",
+        "Priority",
+        "Estimate",
+        "Due Date",
+        "Assignee",
+        "Team",
+        "Project",
+        "Cycle",
+        "Labels",
+        "Created",
+        "Updated",
+    ])?;
+
+    // Stream pages and write rows as they arrive
+    let wtr_clone = Rc::clone(&wtr);
+    let total = stream_nodes(
         &client,
         query,
         vars,
@@ -118,49 +158,52 @@ async fn export_csv(
         &["data", "issues", "pageInfo"],
         &pagination,
         250,
+        |batch| {
+            let wtr = Rc::clone(&wtr_clone);
+            async move {
+                let mut writer = wtr.borrow_mut();
+                for issue in &batch {
+                    let labels: Vec<&str> = issue["labels"]["nodes"]
+                        .as_array()
+                        .map(|a| a.iter().filter_map(|l| l["name"].as_str()).collect())
+                        .unwrap_or_default();
+
+                    writer.write_record([
+                        issue["identifier"].as_str().unwrap_or(""),
+                        issue["title"].as_str().unwrap_or(""),
+                        issue["state"]["name"].as_str().unwrap_or(""),
+                        &issue["priority"].as_i64().unwrap_or(0).to_string(),
+                        &issue["estimate"].as_f64().unwrap_or(0.0).to_string(),
+                        issue["dueDate"].as_str().unwrap_or(""),
+                        issue["assignee"]["name"].as_str().unwrap_or(""),
+                        issue["team"]["key"].as_str().unwrap_or(""),
+                        issue["project"]["name"].as_str().unwrap_or(""),
+                        issue["cycle"]["name"].as_str().unwrap_or(""),
+                        &labels.join("; "),
+                        &issue["createdAt"]
+                            .as_str()
+                            .unwrap_or("")
+                            .chars()
+                            .take(10)
+                            .collect::<String>(),
+                        &issue["updatedAt"]
+                            .as_str()
+                            .unwrap_or("")
+                            .chars()
+                            .take(10)
+                            .collect::<String>(),
+                    ])?;
+                }
+                Ok(())
+            }
+        },
     )
     .await?;
 
-    let mut output: Box<dyn Write> = if let Some(ref path) = file {
-        Box::new(std::fs::File::create(path)?)
-    } else {
-        Box::new(std::io::stdout())
-    };
-
-    // Write CSV header
-    writeln!(
-        output,
-        "Identifier,Title,Status,Priority,Estimate,Due Date,Assignee,Team,Project,Cycle,Labels,Created,Updated"
-    )?;
-
-    // Write rows
-    for issue in &issues {
-        let labels: Vec<&str> = issue["labels"]["nodes"]
-            .as_array()
-            .map(|a| a.iter().filter_map(|l| l["name"].as_str()).collect())
-            .unwrap_or_default();
-
-        writeln!(
-            output,
-            "\"{}\",\"{}\",\"{}\",{},{},\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\"",
-            issue["identifier"].as_str().unwrap_or(""),
-            issue["title"].as_str().unwrap_or("").replace('"', "\"\""),
-            issue["state"]["name"].as_str().unwrap_or(""),
-            issue["priority"].as_i64().unwrap_or(0),
-            issue["estimate"].as_f64().unwrap_or(0.0),
-            issue["dueDate"].as_str().unwrap_or(""),
-            issue["assignee"]["name"].as_str().unwrap_or(""),
-            issue["team"]["key"].as_str().unwrap_or(""),
-            issue["project"]["name"].as_str().unwrap_or(""),
-            issue["cycle"]["name"].as_str().unwrap_or(""),
-            labels.join("; "),
-            issue["createdAt"].as_str().unwrap_or("").chars().take(10).collect::<String>(),
-            issue["updatedAt"].as_str().unwrap_or("").chars().take(10).collect::<String>(),
-        )?;
-    }
+    wtr.borrow_mut().flush()?;
 
     if file.is_some() {
-        eprintln!("Exported {} issues to {}", issues.len(), file.unwrap());
+        eprintln!("Exported {} issues to {}", total, file.unwrap());
     }
 
     Ok(())
@@ -186,6 +229,12 @@ async fn export_markdown(
                     assignee { name }
                     team { key }
                     labels { nodes { name } }
+                }
+                pageInfo {
+                    hasNextPage
+                    endCursor
+                    hasPreviousPage
+                    startCursor
                 }
             }
         }
