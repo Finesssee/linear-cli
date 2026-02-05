@@ -9,7 +9,7 @@
 npx skills add Finesssee/linear-cli
 
 # Install specific skill
-npx skills add Finesssee/linear-cli --skill linear-cli
+npx skills add Finesssee/linear-cli --skill linear-list
 
 # Install globally (available in all projects)
 npx skills add Finesssee/linear-cli -g
@@ -19,9 +19,11 @@ npx skills add Finesssee/linear-cli -g
 
 | Skill | Description |
 |-------|-------------|
-| `linear-cli` | Complete CLI reference - all commands, flags, workflows |
-| `linear-issues` | Issue management - list, create, update, start/stop work |
-| `linear-pr` | GitHub PR creation linked to Linear issues |
+| `linear-list` | List and get issues |
+| `linear-create` | Create issues |
+| `linear-update` | Update issues (status, priority, assignee, labels) |
+| `linear-workflow` | Start/stop work, get current issue context |
+| `linear-pr` | Create GitHub PRs linked to Linear issues |
 | `linear-search` | Search issues and projects |
 | `linear-uploads` | Download attachments and images |
 
@@ -67,14 +69,13 @@ Each skill contains:
 Example skill structure:
 ```yaml
 ---
-name: linear-issues
-description: Manage Linear issues...
+name: linear-list
+description: List and get Linear issues...
 allowed-tools: Bash
 ---
 
-# Linear Issues
+# List/Get Issues
 
-## List Issues
 \`\`\`bash
 linear-cli i list --output json
 \`\`\`
@@ -94,7 +95,7 @@ npx skills update
 
 ```bash
 # Remove specific skill
-npx skills remove --skill linear-issues
+npx skills remove --skill linear-list
 
 # Remove all linear-cli skills
 npx skills remove Finesssee/linear-cli

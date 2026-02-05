@@ -44,20 +44,22 @@ Pre-built binaries available at [GitHub Releases](https://github.com/Finesssee/l
 **linear-cli includes Agent Skills** for AI coding assistants (Claude Code, Cursor, Codex, etc.).
 
 ```bash
-# Install skills for your AI agent
+# Install all skills for your AI agent
 npx skills add Finesssee/linear-cli
 
 # Or install specific skills
-npx skills add Finesssee/linear-cli --skill linear-cli
-npx skills add Finesssee/linear-cli --skill linear-issues
+npx skills add Finesssee/linear-cli --skill linear-list
+npx skills add Finesssee/linear-cli --skill linear-workflow
 ```
 
 **Available skills:**
 | Skill | Description |
 |-------|-------------|
-| `linear-cli` | Complete CLI reference - all commands, flags, workflows |
-| `linear-issues` | Issue management - list, create, update, start/stop work |
-| `linear-pr` | GitHub PR creation linked to Linear issues |
+| `linear-list` | List and get issues |
+| `linear-create` | Create issues |
+| `linear-update` | Update issues (status, priority, assignee, labels) |
+| `linear-workflow` | Start/stop work, get current issue context |
+| `linear-pr` | Create GitHub PRs linked to Linear issues |
 | `linear-search` | Search issues and projects |
 | `linear-uploads` | Download attachments and images |
 
