@@ -31,7 +31,7 @@ impl PaginationOptions {
 pub async fn paginate_nodes(
     client: &LinearClient,
     query: &str,
-    mut variables: Map<String, Value>,
+    base_variables: Map<String, Value>,
     nodes_path: &[&str],
     page_info_path: &[&str],
     options: &PaginationOptions,
@@ -56,35 +56,31 @@ pub async fn paginate_nodes(
             .unwrap_or(page_size)
             .max(1);
 
+        // Build per-page variables: start with pagination keys, then extend with base
+        let mut page_vars = Map::with_capacity(base_variables.len() + 2);
         if forward {
-            variables.insert(
+            page_vars.insert(
                 "first".to_string(),
                 Value::Number(serde_json::Number::from(batch_size as u64)),
             );
             if let Some(ref cursor) = after {
-                variables.insert("after".to_string(), Value::String(cursor.clone()));
-            } else {
-                variables.remove("after");
+                page_vars.insert("after".to_string(), Value::String(cursor.clone()));
             }
-            variables.remove("last");
-            variables.remove("before");
         } else {
-            variables.insert(
+            page_vars.insert(
                 "last".to_string(),
                 Value::Number(serde_json::Number::from(batch_size as u64)),
             );
             if let Some(ref cursor) = before {
-                variables.insert("before".to_string(), Value::String(cursor.clone()));
-            } else {
-                variables.remove("before");
+                page_vars.insert("before".to_string(), Value::String(cursor.clone()));
             }
-            variables.remove("first");
-            variables.remove("after");
+        }
+        // Extend with base variables (these don't change between iterations)
+        for (k, v) in &base_variables {
+            page_vars.insert(k.clone(), v.clone());
         }
 
-        let result = client
-            .query(query, Some(Value::Object(variables.clone())))
-            .await?;
+        let result = client.query(query, Some(Value::Object(page_vars))).await?;
 
         let nodes = get_path(&result, nodes_path)
             .and_then(|v| v.as_array())
@@ -183,7 +179,7 @@ pub async fn paginate_nodes(
 pub async fn stream_nodes<F, Fut>(
     client: &LinearClient,
     query: &str,
-    mut variables: Map<String, Value>,
+    base_variables: Map<String, Value>,
     nodes_path: &[&str],
     page_info_path: &[&str],
     options: &PaginationOptions,
@@ -214,21 +210,20 @@ where
             }
         }
 
-        variables.insert(
+        // Build per-page variables: pagination keys + base variables
+        let mut page_vars = Map::with_capacity(base_variables.len() + 2);
+        page_vars.insert(
             "first".to_string(),
             Value::Number(serde_json::Number::from(batch_size as u64)),
         );
         if let Some(ref cursor) = after {
-            variables.insert("after".to_string(), Value::String(cursor.clone()));
-        } else {
-            variables.remove("after");
+            page_vars.insert("after".to_string(), Value::String(cursor.clone()));
         }
-        variables.remove("last");
-        variables.remove("before");
+        for (k, v) in &base_variables {
+            page_vars.insert(k.clone(), v.clone());
+        }
 
-        let result = client
-            .query(query, Some(Value::Object(variables.clone())))
-            .await?;
+        let result = client.query(query, Some(Value::Object(page_vars))).await?;
 
         let mut nodes = get_path(&result, nodes_path)
             .and_then(|v| v.as_array())

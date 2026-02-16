@@ -44,16 +44,15 @@ async fn fetch_upload(url: &str, file: Option<String>) -> Result<()> {
             .context("Failed to fetch upload from Linear")?;
         eprintln!("Downloaded {} bytes to {}", bytes_written, file_path);
     } else {
-        // Write to stdout (need buffer)
-        let bytes = client
-            .fetch_bytes(url)
+        // Stream directly to stdout
+        let mut stdout_handle = io::stdout().lock();
+        let bytes_written = client
+            .fetch_to_writer(url, &mut stdout_handle)
             .await
             .context("Failed to fetch upload from Linear")?;
-        let mut stdout_handle = io::stdout().lock();
-        stdout_handle
-            .write_all(&bytes)
-            .context("Failed to write to stdout")?;
         stdout_handle.flush()?;
+        drop(stdout_handle);
+        eprintln!("Downloaded {} bytes", bytes_written);
     }
 
     Ok(())

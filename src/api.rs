@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use futures::StreamExt;
 use reqwest::header::HeaderMap;
 use reqwest::{Client, StatusCode};
 use serde_json::{json, Value};
@@ -39,7 +40,7 @@ where
 {
     // Check cache first
     if !cache_opts.no_cache {
-        let cache = Cache::new()?;
+        let cache = Cache::with_ttl(cache_opts.effective_ttl_seconds())?;
         if let Some(cached) = cache
             .get(config.cache_type)
             .and_then(|data| data.as_array().cloned())
@@ -456,9 +457,8 @@ impl LinearClient {
     }
 
     pub async fn query(&self, query: &str, variables: Option<Value>) -> Result<Value> {
-        let vars = variables.clone();
         with_retry(&self.retry, || {
-            let vars = vars.clone();
+            let vars = variables.clone();
             async move { self.query_once(query, vars).await }
         })
         .await
@@ -514,30 +514,6 @@ impl LinearClient {
         self.query(mutation, variables).await
     }
 
-    /// Fetch raw bytes from a URL with authorization header (for Linear uploads)
-    pub async fn fetch_bytes(&self, url: &str) -> Result<Vec<u8>> {
-        let response = self
-            .client
-            .get(url)
-            .header("Authorization", &self.api_key)
-            .send()
-            .await
-            .context("Failed to connect to Linear uploads")?;
-
-        let status = response.status();
-        let headers = response.headers().clone();
-        if !status.is_success() {
-            return Err(http_error(status, &headers, "upload").into());
-        }
-
-        let bytes: Vec<u8> = response
-            .bytes()
-            .await
-            .context("Failed to read response body")?
-            .to_vec();
-        Ok(bytes)
-    }
-
     /// Stream response bytes directly to a writer (for large downloads)
     pub async fn fetch_to_writer(
         &self,
@@ -558,13 +534,14 @@ impl LinearClient {
             return Err(http_error(status, &headers, "upload").into());
         }
 
-        let bytes = response
-            .bytes()
-            .await
-            .context("Failed to read response body")?;
-        let len = bytes.len() as u64;
-        writer.write_all(&bytes)?;
-        Ok(len)
+        let mut total: u64 = 0;
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.context("Failed to read response chunk")?;
+            writer.write_all(&chunk).context("Failed to write chunk")?;
+            total += chunk.len() as u64;
+        }
+        Ok(total)
     }
 }
 
