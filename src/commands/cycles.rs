@@ -32,6 +32,44 @@ pub enum CycleCommands {
         #[arg(short, long)]
         team: String,
     },
+    /// Create a new cycle
+    Create {
+        /// Team key, name, or ID
+        #[arg(short, long)]
+        team: String,
+        /// Cycle name
+        #[arg(short, long)]
+        name: Option<String>,
+        /// Cycle description
+        #[arg(short, long)]
+        description: Option<String>,
+        /// Start date (ISO 8601, e.g. 2024-01-01)
+        #[arg(long)]
+        starts_at: Option<String>,
+        /// End date (ISO 8601, e.g. 2024-01-14)
+        #[arg(long)]
+        ends_at: Option<String>,
+    },
+    /// Update an existing cycle
+    Update {
+        /// Cycle ID
+        id: String,
+        /// New name
+        #[arg(short, long)]
+        name: Option<String>,
+        /// New description
+        #[arg(short, long)]
+        description: Option<String>,
+        /// New start date
+        #[arg(long)]
+        starts_at: Option<String>,
+        /// New end date
+        #[arg(long)]
+        ends_at: Option<String>,
+        /// Preview without updating (dry run)
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 #[derive(Tabled)]
@@ -56,6 +94,24 @@ pub async fn handle(cmd: CycleCommands, output: &OutputOptions) -> Result<()> {
     match cmd {
         CycleCommands::List { team, all } => list_cycles(&team, all, output).await,
         CycleCommands::Current { team } => current_cycle(&team, output).await,
+        CycleCommands::Create {
+            team,
+            name,
+            description,
+            starts_at,
+            ends_at,
+        } => create_cycle(&team, name, description, starts_at, ends_at, output).await,
+        CycleCommands::Update {
+            id,
+            name,
+            description,
+            starts_at,
+            ends_at,
+            dry_run,
+        } => {
+            let dry_run = dry_run || output.dry_run;
+            update_cycle(&id, name, description, starts_at, ends_at, dry_run, output).await
+        }
     }
 }
 
@@ -311,6 +367,138 @@ async fn current_cycle(team: &str, output: &OutputOptions) -> Result<()> {
                 println!("  {} {} [{}]", identifier.cyan(), title, state_colored);
             }
         }
+    }
+
+    Ok(())
+}
+
+async fn create_cycle(
+    team: &str,
+    name: Option<String>,
+    description: Option<String>,
+    starts_at: Option<String>,
+    ends_at: Option<String>,
+    output: &OutputOptions,
+) -> Result<()> {
+    let client = LinearClient::new()?;
+    let team_id = resolve_team_id(&client, team, &output.cache).await?;
+
+    let mut input = json!({ "teamId": team_id });
+    if let Some(n) = &name {
+        input["name"] = json!(n);
+    }
+    if let Some(d) = &description {
+        input["description"] = json!(d);
+    }
+    if let Some(s) = &starts_at {
+        input["startsAt"] = json!(s);
+    }
+    if let Some(e) = &ends_at {
+        input["endsAt"] = json!(e);
+    }
+
+    let mutation = r#"
+        mutation($input: CycleCreateInput!) {
+            cycleCreate(input: $input) {
+                success
+                cycle { id name number startsAt endsAt }
+            }
+        }
+    "#;
+
+    let result = client
+        .mutate(mutation, Some(json!({ "input": input })))
+        .await?;
+
+    if result["data"]["cycleCreate"]["success"].as_bool() == Some(true) {
+        let cycle = &result["data"]["cycleCreate"]["cycle"];
+        if output.is_json() || output.has_template() {
+            print_json(cycle, output)?;
+            return Ok(());
+        }
+        let display_name = cycle["name"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .unwrap_or("cycle");
+        println!("{} Created cycle: {}", "+".green(), display_name);
+        println!("  ID: {}", cycle["id"].as_str().unwrap_or(""));
+        if let Some(num) = cycle["number"].as_u64() {
+            println!("  Number: {}", num);
+        }
+    } else {
+        anyhow::bail!("Failed to create cycle");
+    }
+
+    Ok(())
+}
+
+async fn update_cycle(
+    id: &str,
+    name: Option<String>,
+    description: Option<String>,
+    starts_at: Option<String>,
+    ends_at: Option<String>,
+    dry_run: bool,
+    output: &OutputOptions,
+) -> Result<()> {
+    let client = LinearClient::new()?;
+
+    let mut input = json!({});
+    if let Some(n) = name {
+        input["name"] = json!(n);
+    }
+    if let Some(d) = description {
+        input["description"] = json!(d);
+    }
+    if let Some(s) = starts_at {
+        input["startsAt"] = json!(s);
+    }
+    if let Some(e) = ends_at {
+        input["endsAt"] = json!(e);
+    }
+
+    if input.as_object().map(|o| o.is_empty()).unwrap_or(true) {
+        println!("No updates specified.");
+        return Ok(());
+    }
+
+    if dry_run {
+        if output.is_json() || output.has_template() {
+            print_json_owned(
+                json!({
+                    "dry_run": true,
+                    "would_update": { "id": id, "input": input }
+                }),
+                output,
+            )?;
+        } else {
+            println!("{}", "[DRY RUN] Would update cycle:".yellow().bold());
+            println!("  ID: {}", id);
+        }
+        return Ok(());
+    }
+
+    let mutation = r#"
+        mutation($id: String!, $input: CycleUpdateInput!) {
+            cycleUpdate(id: $id, input: $input) {
+                success
+                cycle { id name number }
+            }
+        }
+    "#;
+
+    let result = client
+        .mutate(mutation, Some(json!({ "id": id, "input": input })))
+        .await?;
+
+    if result["data"]["cycleUpdate"]["success"].as_bool() == Some(true) {
+        if output.is_json() || output.has_template() {
+            print_json(&result["data"]["cycleUpdate"]["cycle"], output)?;
+            return Ok(());
+        }
+        println!("{} Cycle updated", "+".green());
+    } else {
+        anyhow::bail!("Failed to update cycle");
     }
 
     Ok(())
