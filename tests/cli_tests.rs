@@ -295,3 +295,127 @@ fn test_version_contains_semver() {
         "Version output should contain a dot-separated version number"
     );
 }
+
+// --- Help tests for commands without coverage ---
+
+#[test]
+fn test_time_help() {
+    let (code, stdout, _stderr) = run_cli(&["time", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("log"));
+    assert!(stdout.contains("list"));
+}
+
+#[test]
+fn test_relations_help() {
+    let (code, stdout, _stderr) = run_cli(&["relations", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("list"));
+    assert!(stdout.contains("add"));
+    assert!(stdout.contains("remove"));
+}
+
+#[test]
+fn test_favorites_help() {
+    let (code, stdout, _stderr) = run_cli(&["favorites", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("list"));
+    assert!(stdout.contains("add"));
+}
+
+#[test]
+fn test_roadmaps_help() {
+    let (code, stdout, _stderr) = run_cli(&["roadmaps", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("list"));
+    assert!(stdout.contains("get"));
+}
+
+#[test]
+fn test_initiatives_help() {
+    let (code, stdout, _stderr) = run_cli(&["initiatives", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("list"));
+    assert!(stdout.contains("get"));
+}
+
+#[test]
+fn test_documents_help() {
+    let (code, stdout, _stderr) = run_cli(&["documents", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("list"));
+    assert!(stdout.contains("get"));
+    assert!(stdout.contains("create"));
+}
+
+#[test]
+fn test_context_help() {
+    let (code, stdout, _stderr) = run_cli(&["context", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("context") || stdout.contains("issue") || stdout.contains("branch"));
+}
+
+// --- Alias tests for commands without coverage ---
+
+#[test]
+fn test_time_alias() {
+    let (code1, stdout1, _) = run_cli(&["tm", "--help"]);
+    let (code2, stdout2, _) = run_cli(&["time", "--help"]);
+    assert_eq!(code1, 0);
+    assert_eq!(code2, 0);
+    assert_eq!(stdout1, stdout2);
+}
+
+#[test]
+fn test_relations_alias() {
+    let (code1, stdout1, _) = run_cli(&["rel", "--help"]);
+    let (code2, stdout2, _) = run_cli(&["relations", "--help"]);
+    assert_eq!(code1, 0);
+    assert_eq!(code2, 0);
+    assert_eq!(stdout1, stdout2);
+}
+
+#[test]
+fn test_favorites_alias() {
+    let (code1, stdout1, _) = run_cli(&["fav", "--help"]);
+    let (code2, stdout2, _) = run_cli(&["favorites", "--help"]);
+    assert_eq!(code1, 0);
+    assert_eq!(code2, 0);
+    assert_eq!(stdout1, stdout2);
+}
+
+#[test]
+fn test_roadmaps_alias() {
+    let (code1, stdout1, _) = run_cli(&["rm", "--help"]);
+    let (code2, stdout2, _) = run_cli(&["roadmaps", "--help"]);
+    assert_eq!(code1, 0);
+    assert_eq!(code2, 0);
+    assert_eq!(stdout1, stdout2);
+}
+
+#[test]
+fn test_initiatives_alias() {
+    let (code1, stdout1, _) = run_cli(&["init", "--help"]);
+    let (code2, stdout2, _) = run_cli(&["initiatives", "--help"]);
+    assert_eq!(code1, 0);
+    assert_eq!(code2, 0);
+    assert_eq!(stdout1, stdout2);
+}
+
+#[test]
+fn test_documents_alias() {
+    let (code1, stdout1, _) = run_cli(&["d", "--help"]);
+    let (code2, stdout2, _) = run_cli(&["documents", "--help"]);
+    assert_eq!(code1, 0);
+    assert_eq!(code2, 0);
+    assert_eq!(stdout1, stdout2);
+}
+
+#[test]
+fn test_context_alias() {
+    let (code1, stdout1, _) = run_cli(&["ctx", "--help"]);
+    let (code2, stdout2, _) = run_cli(&["context", "--help"]);
+    assert_eq!(code1, 0);
+    assert_eq!(code2, 0);
+    assert_eq!(stdout1, stdout2);
+}
