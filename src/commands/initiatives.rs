@@ -4,11 +4,12 @@ use serde_json::json;
 use tabled::{Table, Tabled};
 
 use crate::api::LinearClient;
-use crate::output::{print_json, OutputOptions};
+use crate::output::{print_json, print_json_owned, OutputOptions};
 use crate::pagination::PaginationOptions;
 use crate::text::truncate;
 use crate::types::Initiative;
 use crate::DISPLAY_OPTIONS;
+use colored::Colorize;
 
 #[derive(Subcommand, Debug)]
 pub enum InitiativeCommands {
@@ -18,6 +19,34 @@ pub enum InitiativeCommands {
     Get {
         /// Initiative ID
         id: String,
+    },
+    /// Create a new initiative
+    Create {
+        /// Initiative name
+        name: String,
+        /// Description
+        #[arg(short, long)]
+        description: Option<String>,
+        /// Status
+        #[arg(short, long)]
+        status: Option<String>,
+    },
+    /// Update an existing initiative
+    Update {
+        /// Initiative ID
+        id: String,
+        /// New name
+        #[arg(short, long)]
+        name: Option<String>,
+        /// New description
+        #[arg(short, long)]
+        description: Option<String>,
+        /// New status
+        #[arg(short, long)]
+        status: Option<String>,
+        /// Preview without updating (dry run)
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -43,6 +72,21 @@ pub async fn handle(
     match cmd {
         InitiativeCommands::List => list_initiatives(output).await,
         InitiativeCommands::Get { id } => get_initiative(&id, output).await,
+        InitiativeCommands::Create {
+            name,
+            description,
+            status,
+        } => create_initiative(&name, description, status, output).await,
+        InitiativeCommands::Update {
+            id,
+            name,
+            description,
+            status,
+            dry_run,
+        } => {
+            let dry_run = dry_run || output.dry_run;
+            update_initiative(&id, name, description, status, dry_run, output).await
+        }
     }
 }
 
@@ -144,5 +188,121 @@ async fn get_initiative(id: &str, output: &OutputOptions) -> Result<()> {
     }
 
     print_json(initiative, output)?;
+    Ok(())
+}
+
+async fn create_initiative(
+    name: &str,
+    description: Option<String>,
+    status: Option<String>,
+    output: &OutputOptions,
+) -> Result<()> {
+    let client = LinearClient::new()?;
+
+    let mut input = json!({ "name": name });
+    if let Some(d) = description {
+        input["description"] = json!(d);
+    }
+    if let Some(s) = status {
+        input["status"] = json!(s);
+    }
+
+    let mutation = r#"
+        mutation($input: InitiativeCreateInput!) {
+            initiativeCreate(input: $input) {
+                success
+                initiative { id name }
+            }
+        }
+    "#;
+
+    let result = client
+        .mutate(mutation, Some(json!({ "input": input })))
+        .await?;
+
+    if result["data"]["initiativeCreate"]["success"].as_bool() == Some(true) {
+        let initiative = &result["data"]["initiativeCreate"]["initiative"];
+        if output.is_json() || output.has_template() {
+            print_json(initiative, output)?;
+            return Ok(());
+        }
+        println!(
+            "{} Created initiative: {}",
+            "+".green(),
+            initiative["name"].as_str().unwrap_or("")
+        );
+        println!("  ID: {}", initiative["id"].as_str().unwrap_or(""));
+    } else {
+        anyhow::bail!("Failed to create initiative");
+    }
+
+    Ok(())
+}
+
+async fn update_initiative(
+    id: &str,
+    name: Option<String>,
+    description: Option<String>,
+    status: Option<String>,
+    dry_run: bool,
+    output: &OutputOptions,
+) -> Result<()> {
+    let client = LinearClient::new()?;
+
+    let mut input = json!({});
+    if let Some(n) = name {
+        input["name"] = json!(n);
+    }
+    if let Some(d) = description {
+        input["description"] = json!(d);
+    }
+    if let Some(s) = status {
+        input["status"] = json!(s);
+    }
+
+    if input.as_object().map(|o| o.is_empty()).unwrap_or(true) {
+        println!("No updates specified.");
+        return Ok(());
+    }
+
+    if dry_run {
+        if output.is_json() || output.has_template() {
+            print_json_owned(
+                json!({
+                    "dry_run": true,
+                    "would_update": { "id": id, "input": input }
+                }),
+                output,
+            )?;
+        } else {
+            println!("{}", "[DRY RUN] Would update initiative:".yellow().bold());
+            println!("  ID: {}", id);
+        }
+        return Ok(());
+    }
+
+    let mutation = r#"
+        mutation($id: String!, $input: InitiativeUpdateInput!) {
+            initiativeUpdate(id: $id, input: $input) {
+                success
+                initiative { id name }
+            }
+        }
+    "#;
+
+    let result = client
+        .mutate(mutation, Some(json!({ "id": id, "input": input })))
+        .await?;
+
+    if result["data"]["initiativeUpdate"]["success"].as_bool() == Some(true) {
+        if output.is_json() || output.has_template() {
+            print_json(&result["data"]["initiativeUpdate"]["initiative"], output)?;
+            return Ok(());
+        }
+        println!("{} Initiative updated", "+".green());
+    } else {
+        anyhow::bail!("Failed to update initiative");
+    }
+
     Ok(())
 }

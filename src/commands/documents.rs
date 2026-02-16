@@ -71,6 +71,17 @@ pub enum DocumentCommands {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Delete a document
+    Delete {
+        /// Document ID
+        id: String,
+        /// Skip confirmation
+        #[arg(long)]
+        force: bool,
+        /// Preview without deleting (dry run)
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 #[derive(Tabled)]
@@ -115,6 +126,10 @@ pub async fn handle(cmd: DocumentCommands, output: &OutputOptions) -> Result<()>
         } => {
             let dry_run = dry_run || output.dry_run;
             update_document(&id, title, content, icon, color, project, dry_run, output).await
+        }
+        DocumentCommands::Delete { id, force, dry_run } => {
+            let dry_run = dry_run || output.dry_run;
+            delete_document(&id, force, dry_run, output).await
         }
     }
 }
@@ -471,6 +486,65 @@ async fn update_document(
         println!("{} Document updated", "+".green());
     } else {
         anyhow::bail!("Failed to update document");
+    }
+
+    Ok(())
+}
+
+async fn delete_document(
+    id: &str,
+    force: bool,
+    dry_run: bool,
+    output: &OutputOptions,
+) -> Result<()> {
+    let client = LinearClient::new()?;
+
+    if dry_run {
+        if output.is_json() || output.has_template() {
+            print_json_owned(
+                json!({
+                    "dry_run": true,
+                    "would_delete": { "id": id }
+                }),
+                output,
+            )?;
+        } else {
+            println!("{}", "[DRY RUN] Would delete document:".yellow().bold());
+            println!("  ID: {}", id);
+        }
+        return Ok(());
+    }
+
+    if !force {
+        use dialoguer::Confirm;
+        let confirm = Confirm::new()
+            .with_prompt(format!("Delete document {}?", id))
+            .default(false)
+            .interact()?;
+        if !confirm {
+            println!("Cancelled.");
+            return Ok(());
+        }
+    }
+
+    let mutation = r#"
+        mutation($id: String!) {
+            documentDelete(id: $id) {
+                success
+            }
+        }
+    "#;
+
+    let result = client.mutate(mutation, Some(json!({ "id": id }))).await?;
+
+    if result["data"]["documentDelete"]["success"].as_bool() == Some(true) {
+        if output.is_json() || output.has_template() {
+            print_json_owned(json!({ "deleted": true, "id": id }), output)?;
+            return Ok(());
+        }
+        println!("{} Document deleted: {}", "-".red(), id);
+    } else {
+        anyhow::bail!("Failed to delete document");
     }
 
     Ok(())
