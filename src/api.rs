@@ -259,6 +259,46 @@ pub async fn resolve_label_id(
     resolve_id(client, label, cache_opts, &config, find_label_id).await
 }
 
+/// Resolve a project name or slug to a UUID.
+pub async fn resolve_project_id(
+    client: &LinearClient,
+    project: &str,
+    cache_opts: &CacheOptions,
+) -> Result<String> {
+    if is_uuid(project) {
+        return Ok(project.to_string());
+    }
+
+    let config = ResolverConfig {
+        cache_type: CacheType::Projects,
+        filtered_query: r#"
+            query($project: String!) {
+                projects(first: 50, filter: { name: { eqIgnoreCase: $project } }) {
+                    nodes { id name slugId }
+                }
+            }
+        "#,
+        filtered_var_name: "project",
+        filtered_nodes_path: &["data", "projects", "nodes"],
+        paginated_query: r#"
+            query($first: Int, $after: String) {
+                projects(first: $first, after: $after) {
+                    nodes { id name slugId }
+                    pageInfo { hasNextPage endCursor }
+                }
+            }
+        "#,
+        paginated_nodes_path: &["data", "projects", "nodes"],
+        paginated_page_info_path: &["data", "projects", "pageInfo"],
+        not_found_msg: &format!(
+            "Project not found: {}. Use linear-cli p list to see available projects.",
+            project
+        ),
+    };
+
+    resolve_id(client, project, cache_opts, &config, find_project_id).await
+}
+
 fn find_team_id(teams: &[Value], team: &str) -> Option<String> {
     if let Some(team_data) = teams
         .iter()
@@ -299,6 +339,28 @@ fn find_label_id(labels: &[Value], label: &str) -> Option<String> {
         let name = l["name"].as_str().unwrap_or("");
         if name.eq_ignore_ascii_case(label) {
             if let Some(id) = l["id"].as_str() {
+                return Some(id.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn find_project_id(projects: &[Value], project: &str) -> Option<String> {
+    // Match by name (case-insensitive)
+    for p in projects {
+        let name = p["name"].as_str().unwrap_or("");
+        if name.eq_ignore_ascii_case(project) {
+            if let Some(id) = p["id"].as_str() {
+                return Some(id.to_string());
+            }
+        }
+    }
+    // Match by slugId
+    for p in projects {
+        let slug = p["slugId"].as_str().unwrap_or("");
+        if slug.eq_ignore_ascii_case(project) {
+            if let Some(id) = p["id"].as_str() {
                 return Some(id.to_string());
             }
         }

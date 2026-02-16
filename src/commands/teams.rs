@@ -4,7 +4,7 @@ use colored::Colorize;
 use serde_json::{json, Value};
 use tabled::{Table, Tabled};
 
-use crate::api::LinearClient;
+use crate::api::{resolve_team_id, LinearClient};
 use crate::cache::{Cache, CacheType};
 use crate::display_options;
 use crate::input::read_ids_from_stdin;
@@ -144,6 +144,7 @@ async fn list_teams(output: &OutputOptions) -> Result<()> {
 
 async fn get_team(id: &str, output: &OutputOptions) -> Result<()> {
     let client = LinearClient::new()?;
+    let resolved_id = resolve_team_id(&client, id, &output.cache).await?;
 
     let query = r#"
         query($id: String!) {
@@ -163,7 +164,9 @@ async fn get_team(id: &str, output: &OutputOptions) -> Result<()> {
         }
     "#;
 
-    let result = client.query(query, Some(json!({ "id": id }))).await?;
+    let result = client
+        .query(query, Some(json!({ "id": resolved_id })))
+        .await?;
     let team = &result["data"]["team"];
 
     if team.is_null() {
@@ -225,11 +228,16 @@ async fn get_teams(ids: &[String], output: &OutputOptions) -> Result<()> {
     let client = LinearClient::new()?;
 
     use futures::stream::{self, StreamExt};
+    let cache_opts = output.cache.clone();
     let results: Vec<_> = stream::iter(ids.iter())
         .map(|id| {
             let client = client.clone();
             let id = id.clone();
+            let cache_opts = cache_opts.clone();
             async move {
+                let resolved = resolve_team_id(&client, &id, &cache_opts)
+                    .await
+                    .unwrap_or_else(|_| id.clone());
                 let query = r#"
                     query($id: String!) {
                         team(id: $id) {
@@ -240,7 +248,7 @@ async fn get_teams(ids: &[String], output: &OutputOptions) -> Result<()> {
                         }
                     }
                 "#;
-                let result = client.query(query, Some(json!({ "id": id }))).await;
+                let result = client.query(query, Some(json!({ "id": resolved }))).await;
                 (id, result)
             }
         })

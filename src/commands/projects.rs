@@ -4,7 +4,7 @@ use colored::Colorize;
 use serde_json::json;
 use tabled::{Table, Tabled};
 
-use crate::api::{resolve_team_id, LinearClient};
+use crate::api::{resolve_project_id, resolve_team_id, LinearClient};
 use crate::display_options;
 use crate::input::read_ids_from_stdin;
 use crate::output::{ensure_non_empty, filter_values, print_json, sort_values, OutputOptions};
@@ -220,6 +220,7 @@ async fn list_projects(include_archived: bool, output: &OutputOptions) -> Result
 
 async fn get_project(id: &str, output: &OutputOptions) -> Result<()> {
     let client = LinearClient::new()?;
+    let resolved_id = resolve_project_id(&client, id, &output.cache).await?;
 
     let query = r#"
         query($id: String!) {
@@ -236,7 +237,9 @@ async fn get_project(id: &str, output: &OutputOptions) -> Result<()> {
         }
     "#;
 
-    let result = client.query(query, Some(json!({ "id": id }))).await?;
+    let result = client
+        .query(query, Some(json!({ "id": resolved_id })))
+        .await?;
     let project = &result["data"]["project"];
 
     if project.is_null() {
@@ -295,11 +298,15 @@ async fn get_projects(ids: &[String], output: &OutputOptions) -> Result<()> {
     let client = LinearClient::new()?;
 
     use futures::stream::{self, StreamExt};
+    let cache_opts = output.cache;
     let results: Vec<_> = stream::iter(ids.iter())
         .map(|id| {
             let client = client.clone();
             let id = id.clone();
             async move {
+                let resolved = resolve_project_id(&client, &id, &cache_opts)
+                    .await
+                    .unwrap_or_else(|_| id.clone());
                 let query = r#"
                     query($id: String!) {
                         project(id: $id) {
@@ -311,7 +318,7 @@ async fn get_projects(ids: &[String], output: &OutputOptions) -> Result<()> {
                         }
                     }
                 "#;
-                let result = client.query(query, Some(json!({ "id": id }))).await;
+                let result = client.query(query, Some(json!({ "id": resolved }))).await;
                 (id, result)
             }
         })
