@@ -1,8 +1,8 @@
 # Codex Improvement Audit - Implementation Summary
 
-14 improvements identified via OpenAI Codex analysis. 13 implemented, 1 deferred.
+14 improvements identified via OpenAI Codex analysis. All 14 implemented.
 
-## Completed (13/14)
+## Completed (14/14)
 
 ### Bug Fixes
 1. **Time tracking error swallowing** (`src/commands/time.rs`) - `Err(_)` branches now propagate via `anyhow::bail!` instead of printing success-like messages.
@@ -22,12 +22,9 @@
 11. **Upload streaming** (`src/commands/uploads.rs`, `src/api.rs`) - Added `fetch_to_writer()` for streaming file downloads instead of buffering entire file in memory.
 
 ### Quality
-12. **Dead code warning suppression** (`src/main.rs`) - Added `#[allow(dead_code)]` on `mod types` since structs are for future adoption.
-13. **Test coverage** - Added 51 new tests (94→126 unit, 13→32 integration), covering config serialization, pagination options, output filtering/sorting/templates/field selection, CLI aliases, subcommand help text, and global flags.
-
-## Deferred (1/14)
-
-14. **Typed API response models** - Replace `serde_json::Value` with typed structs from `types.rs` throughout command handlers. Large refactor best done incrementally per-module.
+12. **Dead code warning suppression** (`src/main.rs`) - Added `#[allow(dead_code)]` on `mod types` since structs are for gradual adoption.
+13. **Test coverage** - Added 51 new tests (94->126 unit, 13->32 integration), covering config serialization, pagination options, output filtering/sorting/templates/field selection, CLI aliases, subcommand help text, and global flags.
+14. **Typed API response models** - Adopted typed structs from `types.rs` in 6 command handlers (teams, users, projects, labels, comments, documents), replacing raw `serde_json::Value` indexing with `serde_json::from_value::<T>()` deserialization. Added `Serialize` to all types, added missing fields (`Document.url`, `Team.issue_count/created_at/updated_at`, `Viewer.url/created_at`, `Project.status/start_date/labels`).
 
 ## Test Results
 
