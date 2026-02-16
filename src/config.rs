@@ -100,7 +100,7 @@ pub fn set_api_key(key: &str) -> Result<()> {
         },
     );
     if config.current.is_none() {
-        config.current = Some("default".to_string());
+        config.current = Some(workspace_name.clone());
     }
     save_config(&config)?;
     Ok(())
