@@ -1,6 +1,6 @@
-# Codex Improvement Audit - Implementation Summary
+# v0.3.1 Improvements - Implementation Summary
 
-14 improvements identified via OpenAI Codex analysis. All 14 implemented.
+14 improvements implemented across bug fixes, reliability, consistency, and quality.
 
 ## Completed (14/14)
 
