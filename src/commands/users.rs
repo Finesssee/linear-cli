@@ -10,6 +10,7 @@ use crate::display_options;
 use crate::output::{ensure_non_empty, filter_values, print_json, sort_values, OutputOptions};
 use crate::pagination::paginate_nodes;
 use crate::text::truncate;
+use crate::types::{User, Viewer};
 
 #[derive(Subcommand)]
 pub enum UserCommands {
@@ -161,10 +162,11 @@ async fn list_users(team: Option<String>, output: &OutputOptions) -> Result<()> 
     let email_width = display_options().max_width(40);
     let rows: Vec<UserRow> = users
         .iter()
+        .filter_map(|v| serde_json::from_value::<User>(v.clone()).ok())
         .map(|u| UserRow {
-            name: truncate(u["name"].as_str().unwrap_or(""), name_width),
-            email: truncate(u["email"].as_str().unwrap_or(""), email_width),
-            id: u["id"].as_str().unwrap_or("").to_string(),
+            name: truncate(&u.name, name_width),
+            email: truncate(u.email.as_deref().unwrap_or(""), email_width),
+            id: u.id,
         })
         .collect();
 
@@ -195,48 +197,50 @@ async fn get_me(output: &OutputOptions) -> Result<()> {
     "#;
 
     let result = client.query(query, None).await?;
-    let user = &result["data"]["viewer"];
+    let raw = &result["data"]["viewer"];
 
-    if user.is_null() {
+    if raw.is_null() {
         anyhow::bail!("Could not fetch current user");
     }
 
     if output.is_json() || output.has_template() {
-        print_json(user, output)?;
+        print_json(raw, output)?;
         return Ok(());
     }
 
-    println!("{}", user["name"].as_str().unwrap_or("").bold());
+    let viewer: Viewer = serde_json::from_value(raw.clone())?;
+
+    println!("{}", viewer.name.bold());
     println!("{}", "-".repeat(40));
 
-    if let Some(display_name) = user["displayName"].as_str() {
+    if let Some(display_name) = &viewer.display_name {
         if !display_name.is_empty() {
             println!("Display Name: {}", display_name);
         }
     }
 
-    println!("Email: {}", user["email"].as_str().unwrap_or("-"));
+    println!("Email: {}", viewer.email.as_deref().unwrap_or("-"));
     println!(
         "Admin: {}",
-        user["admin"]
-            .as_bool()
+        viewer
+            .admin
             .map(|b| if b { "Yes" } else { "No" })
             .unwrap_or("-")
     );
     println!(
         "Active: {}",
-        user["active"]
-            .as_bool()
+        viewer
+            .active
             .map(|b| if b { "Yes" } else { "No" })
             .unwrap_or("-")
     );
 
-    if let Some(created) = user["createdAt"].as_str() {
+    if let Some(created) = &viewer.created_at {
         println!("Created: {}", created);
     }
 
-    println!("URL: {}", user["url"].as_str().unwrap_or("-"));
-    println!("ID: {}", user["id"].as_str().unwrap_or("-"));
+    println!("URL: {}", viewer.url.as_deref().unwrap_or("-"));
+    println!("ID: {}", viewer.id);
 
     Ok(())
 }

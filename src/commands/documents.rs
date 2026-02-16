@@ -10,6 +10,7 @@ use crate::input::read_ids_from_stdin;
 use crate::output::{ensure_non_empty, filter_values, print_json, sort_values, OutputOptions};
 use crate::pagination::paginate_nodes;
 use crate::text::truncate;
+use crate::types::Document;
 
 #[derive(Subcommand)]
 pub enum DocumentCommands {
@@ -248,38 +249,40 @@ async fn get_document(id: &str, output: &OutputOptions) -> Result<()> {
         return Ok(());
     }
 
-    println!("{}", document["title"].as_str().unwrap_or("").bold());
+    let doc: Document = serde_json::from_value(document.clone())?;
+
+    println!("{}", doc.title.bold());
     println!("{}", "-".repeat(40));
 
-    if let Some(project_name) = document["project"]["name"].as_str() {
-        println!("Project: {}", project_name);
+    if let Some(proj) = &doc.project {
+        println!("Project: {}", proj.name);
     }
 
-    if let Some(creator_name) = document["creator"]["name"].as_str() {
-        println!("Creator: {}", creator_name);
+    if let Some(creator) = &doc.creator {
+        println!("Creator: {}", creator.name);
     }
 
-    if let Some(icon) = document["icon"].as_str() {
+    if let Some(icon) = &doc.icon {
         println!("Icon: {}", icon);
     }
 
-    if let Some(color) = document["color"].as_str() {
+    if let Some(color) = &doc.color {
         println!("Color: {}", color);
     }
 
-    println!("URL: {}", document["url"].as_str().unwrap_or("-"));
-    println!("ID: {}", document["id"].as_str().unwrap_or("-"));
+    println!("URL: {}", doc.url.as_deref().unwrap_or("-"));
+    println!("ID: {}", doc.id);
 
-    if let Some(created) = document["createdAt"].as_str() {
+    if let Some(created) = &doc.created_at {
         println!("Created: {}", created.chars().take(10).collect::<String>());
     }
 
-    if let Some(updated) = document["updatedAt"].as_str() {
+    if let Some(updated) = &doc.updated_at {
         println!("Updated: {}", updated.chars().take(10).collect::<String>());
     }
 
     // Display content
-    if let Some(content) = document["content"].as_str() {
+    if let Some(content) = &doc.content {
         println!("\n{}", "Content".bold());
         println!("{}", "-".repeat(40));
         println!("{}", content);

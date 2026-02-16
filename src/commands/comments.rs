@@ -10,6 +10,7 @@ use crate::input::read_ids_from_stdin;
 use crate::output::{ensure_non_empty, filter_values, print_json, sort_values, OutputOptions};
 use crate::pagination::paginate_nodes;
 use crate::text::truncate;
+use crate::types::Comment;
 
 #[derive(Subcommand)]
 pub enum CommentCommands {
@@ -118,12 +119,14 @@ async fn list_comments(issue_ids: &[String], output: &OutputOptions) -> Result<(
         let width = display_options().max_width(60);
         let rows: Vec<CommentRow> = comments
             .iter()
+            .filter_map(|v| serde_json::from_value::<Comment>(v.clone()).ok())
             .map(|c| {
-                let body = c["body"].as_str().unwrap_or("");
-                let truncated_body = truncate(body, width);
+                let body_text = c.body.as_deref().unwrap_or("");
+                let truncated_body = truncate(body_text, width);
 
-                let created_at = c["createdAt"]
-                    .as_str()
+                let created_at = c
+                    .created_at
+                    .as_deref()
                     .unwrap_or("")
                     .split('T')
                     .next()
@@ -131,10 +134,14 @@ async fn list_comments(issue_ids: &[String], output: &OutputOptions) -> Result<(
                     .to_string();
 
                 CommentRow {
-                    author: c["user"]["name"].as_str().unwrap_or("Unknown").to_string(),
+                    author: c
+                        .user
+                        .as_ref()
+                        .map(|u| u.name.clone())
+                        .unwrap_or_else(|| "Unknown".to_string()),
                     created_at,
                     body: truncated_body.replace('\n', " "),
-                    id: c["id"].as_str().unwrap_or("").to_string(),
+                    id: c.id,
                 }
             })
             .collect();

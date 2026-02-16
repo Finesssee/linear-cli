@@ -10,6 +10,7 @@ use crate::input::read_ids_from_stdin;
 use crate::output::{ensure_non_empty, filter_values, print_json, sort_values, OutputOptions};
 use crate::pagination::paginate_nodes;
 use crate::text::truncate;
+use crate::types::Project;
 
 #[derive(Subcommand)]
 pub enum ProjectCommands {
@@ -203,11 +204,12 @@ async fn list_projects(include_archived: bool, output: &OutputOptions) -> Result
     let width = display_options().max_width(50);
     let rows: Vec<ProjectRow> = projects
         .iter()
+        .filter_map(|v| serde_json::from_value::<Project>(v.clone()).ok())
         .map(|p| ProjectRow {
-            name: truncate(p["name"].as_str().unwrap_or(""), width),
-            status: p["state"].as_str().unwrap_or("-").to_string(),
+            name: truncate(&p.name, width),
+            status: p.state.unwrap_or_else(|| "-".to_string()),
             labels: "-".to_string(),
-            id: p["id"].as_str().unwrap_or("").to_string(),
+            id: p.id,
         })
         .collect();
 
@@ -252,36 +254,38 @@ async fn get_project(id: &str, output: &OutputOptions) -> Result<()> {
         return Ok(());
     }
 
-    println!("{}", project["name"].as_str().unwrap_or("").bold());
+    let proj: Project = serde_json::from_value(project.clone())?;
+
+    println!("{}", proj.name.bold());
     println!("{}", "-".repeat(40));
 
-    if let Some(desc) = project["description"].as_str() {
-        println!(
-            "Description: {}",
-            desc.chars().take(100).collect::<String>()
-        );
+    if let Some(desc) = &proj.description {
+        if !desc.is_empty() {
+            println!(
+                "Description: {}",
+                desc.chars().take(100).collect::<String>()
+            );
+        }
     }
 
     println!(
         "Status: {}",
-        project["status"]["name"].as_str().unwrap_or("-")
+        proj.status.as_ref().map(|s| s.name.as_str()).unwrap_or("-")
     );
-    println!("Color: {}", project["color"].as_str().unwrap_or("-"));
-    println!("Icon: {}", project["icon"].as_str().unwrap_or("-"));
-    println!("URL: {}", project["url"].as_str().unwrap_or("-"));
-    println!("ID: {}", project["id"].as_str().unwrap_or("-"));
+    println!("Color: {}", proj.color.as_deref().unwrap_or("-"));
+    println!("Icon: {}", proj.icon.as_deref().unwrap_or("-"));
+    println!("URL: {}", proj.url.as_deref().unwrap_or("-"));
+    println!("ID: {}", proj.id);
 
-    let labels = project["labels"]["nodes"].as_array();
-    if let Some(labels) = labels {
-        if !labels.is_empty() {
+    if let Some(label_conn) = &proj.labels {
+        if !label_conn.nodes.is_empty() {
             println!("\nLabels:");
-            for label in labels {
-                let parent = label["parent"]["name"].as_str().unwrap_or("");
-                let name = label["name"].as_str().unwrap_or("");
-                if parent.is_empty() {
-                    println!("  - {}", name);
+            for label in &label_conn.nodes {
+                let parent_name = label.parent.as_ref().map(|p| p.name.as_str()).unwrap_or("");
+                if parent_name.is_empty() {
+                    println!("  - {}", label.name);
                 } else {
-                    println!("  - {} > {}", parent.dimmed(), name);
+                    println!("  - {} > {}", parent_name.dimmed(), label.name);
                 }
             }
         }
@@ -351,10 +355,12 @@ async fn get_projects(ids: &[String], output: &OutputOptions) -> Result<()> {
                 let project = &data["data"]["project"];
                 if project.is_null() {
                     eprintln!("{} Project not found: {}", "!".yellow(), id);
-                } else {
-                    let name = truncate(project["name"].as_str().unwrap_or("-"), width);
-                    let status = project["status"]["name"].as_str().unwrap_or("-");
+                } else if let Ok(proj) = serde_json::from_value::<Project>(project.clone()) {
+                    let name = truncate(&proj.name, width);
+                    let status = proj.status.as_ref().map(|s| s.name.as_str()).unwrap_or("-");
                     println!("{} [{}] {}", name.cyan(), status, id);
+                } else {
+                    eprintln!("{} Failed to parse project: {}", "!".yellow(), id);
                 }
             }
             Err(e) => {

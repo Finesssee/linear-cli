@@ -11,6 +11,7 @@ use crate::input::read_ids_from_stdin;
 use crate::output::{ensure_non_empty, filter_values, print_json, sort_values, OutputOptions};
 use crate::pagination::paginate_nodes;
 use crate::text::truncate;
+use crate::types::Team;
 
 #[derive(Subcommand)]
 pub enum TeamCommands {
@@ -128,10 +129,11 @@ async fn list_teams(output: &OutputOptions) -> Result<()> {
     let width = display_options().max_width(30);
     let rows: Vec<TeamRow> = teams
         .iter()
+        .filter_map(|v| serde_json::from_value::<Team>(v.clone()).ok())
         .map(|t| TeamRow {
-            name: truncate(t["name"].as_str().unwrap_or(""), width),
-            key: t["key"].as_str().unwrap_or("").to_string(),
-            id: t["id"].as_str().unwrap_or("").to_string(),
+            name: truncate(&t.name, width),
+            key: t.key,
+            id: t.id,
         })
         .collect();
 
@@ -167,53 +169,55 @@ async fn get_team(id: &str, output: &OutputOptions) -> Result<()> {
     let result = client
         .query(query, Some(json!({ "id": resolved_id })))
         .await?;
-    let team = &result["data"]["team"];
+    let raw = &result["data"]["team"];
 
-    if team.is_null() {
+    if raw.is_null() {
         anyhow::bail!("Team not found: {}", id);
     }
 
     if output.is_json() || output.has_template() {
-        print_json(team, output)?;
+        print_json(raw, output)?;
         return Ok(());
     }
 
-    println!("{}", team["name"].as_str().unwrap_or("").bold());
+    let team: Team = serde_json::from_value(raw.clone())?;
+
+    println!("{}", team.name.bold());
     println!("{}", "-".repeat(40));
 
-    println!("Key: {}", team["key"].as_str().unwrap_or("-"));
+    println!("Key: {}", team.key);
 
-    if let Some(desc) = team["description"].as_str() {
+    if let Some(desc) = &team.description {
         if !desc.is_empty() {
             println!("Description: {}", desc);
         }
     }
 
-    println!("Private: {}", team["private"].as_bool().unwrap_or(false));
+    println!("Private: {}", team.private.unwrap_or(false));
 
-    if let Some(timezone) = team["timezone"].as_str() {
+    if let Some(timezone) = &team.timezone {
         println!("Timezone: {}", timezone);
     }
 
-    if let Some(issue_count) = team["issueCount"].as_i64() {
+    if let Some(issue_count) = team.issue_count {
         println!("Issue Count: {}", issue_count);
     }
 
-    if let Some(color) = team["color"].as_str() {
+    if let Some(color) = &team.color {
         println!("Color: {}", color);
     }
 
-    if let Some(icon) = team["icon"].as_str() {
+    if let Some(icon) = &team.icon {
         println!("Icon: {}", icon);
     }
 
-    println!("ID: {}", team["id"].as_str().unwrap_or("-"));
+    println!("ID: {}", team.id);
 
-    if let Some(created_at) = team["createdAt"].as_str() {
+    if let Some(created_at) = &team.created_at {
         println!("Created: {}", created_at);
     }
 
-    if let Some(updated_at) = team["updatedAt"].as_str() {
+    if let Some(updated_at) = &team.updated_at {
         println!("Updated: {}", updated_at);
     }
 
@@ -278,14 +282,20 @@ async fn get_teams(ids: &[String], output: &OutputOptions) -> Result<()> {
     for (id, result) in results {
         match result {
             Ok(data) => {
-                let team = &data["data"]["team"];
-                if team.is_null() {
+                let raw = &data["data"]["team"];
+                if raw.is_null() {
                     eprintln!("{} Team not found: {}", "!".yellow(), id);
+                } else if let Ok(team) = serde_json::from_value::<Team>(raw.clone()) {
+                    let name = truncate(&team.name, width);
+                    println!(
+                        "{} ({}) private={} id={}",
+                        name.cyan(),
+                        team.key,
+                        team.private.unwrap_or(false),
+                        id
+                    );
                 } else {
-                    let name = truncate(team["name"].as_str().unwrap_or("-"), width);
-                    let key = team["key"].as_str().unwrap_or("-");
-                    let private = team["private"].as_bool().unwrap_or(false);
-                    println!("{} ({}) private={} id={}", name.cyan(), key, private, id);
+                    eprintln!("{} Failed to parse team: {}", "!".yellow(), id);
                 }
             }
             Err(e) => {

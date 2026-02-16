@@ -9,6 +9,7 @@ use crate::display_options;
 use crate::output::{ensure_non_empty, filter_values, print_json, sort_values, OutputOptions};
 use crate::pagination::paginate_nodes;
 use crate::text::truncate;
+use crate::types::Label;
 
 #[derive(Subcommand)]
 pub enum LabelCommands {
@@ -164,11 +165,15 @@ async fn list_labels(label_type: &str, output: &OutputOptions) -> Result<()> {
     let width = display_options().max_width(30);
     let rows: Vec<LabelRow> = labels
         .iter()
+        .filter_map(|v| serde_json::from_value::<Label>(v.clone()).ok())
         .map(|l| LabelRow {
-            name: truncate(l["name"].as_str().unwrap_or(""), width),
-            group: truncate(l["parent"]["name"].as_str().unwrap_or("-"), width),
-            color: l["color"].as_str().unwrap_or("").to_string(),
-            id: l["id"].as_str().unwrap_or("").to_string(),
+            name: truncate(&l.name, width),
+            group: truncate(
+                l.parent.as_ref().map(|p| p.name.as_str()).unwrap_or("-"),
+                width,
+            ),
+            color: l.color.unwrap_or_default(),
+            id: l.id,
         })
         .collect();
 
