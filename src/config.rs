@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 #[cfg(unix)]
 use std::io::Write;
@@ -149,11 +150,23 @@ pub fn config_file_path() -> Result<PathBuf> {
 }
 
 pub fn current_profile() -> Result<String> {
+    static PROFILE: OnceLock<String> = OnceLock::new();
+
+    if let Some(cached) = PROFILE.get() {
+        return Ok(cached.clone());
+    }
+
     let config = load_config()?;
     let profile = std::env::var("LINEAR_CLI_PROFILE")
         .ok()
         .filter(|p| !p.is_empty());
-    profile.or(config.current).context("No workspace selected")
+    let resolved = profile
+        .or(config.current)
+        .context("No workspace selected")?;
+
+    // Store for future calls (ignore if another thread beat us)
+    let _ = PROFILE.set(resolved.clone());
+    Ok(resolved)
 }
 
 pub fn set_workspace_key(name: &str, api_key: &str) -> Result<()> {

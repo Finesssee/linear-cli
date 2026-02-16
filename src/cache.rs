@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::config;
@@ -35,13 +36,18 @@ pub struct CacheEntry {
 }
 
 impl CacheEntry {
-    /// Check if the cache entry is still valid
+    /// Check if the cache entry is still valid using its stored TTL
     pub fn is_valid(&self) -> bool {
+        self.is_valid_with_ttl(self.ttl_seconds)
+    }
+
+    /// Check if the cache entry is still valid using a custom TTL override
+    pub fn is_valid_with_ttl(&self, ttl_seconds: u64) -> bool {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or(Duration::ZERO)
             .as_secs();
-        now < self.timestamp + self.ttl_seconds
+        now < self.timestamp + ttl_seconds
     }
 
     /// Get the age of the cache entry in seconds
@@ -122,13 +128,22 @@ impl Cache {
     }
 
     /// Get the cache directory path, scoped by workspace/profile
-    fn cache_dir() -> Result<PathBuf> {
+    pub(crate) fn cache_dir() -> Result<PathBuf> {
+        static CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+        if let Some(cached) = CACHE_DIR.get() {
+            return Ok(cached.clone());
+        }
+
         let profile = config::current_profile().unwrap_or_else(|_| "default".to_string());
         let config_dir = dirs::config_dir()
             .context("Could not find config directory")?
             .join("linear-cli")
             .join("cache")
             .join(profile);
+
+        // Store for future calls (ignore if another thread beat us)
+        let _ = CACHE_DIR.set(config_dir.clone());
         Ok(config_dir)
     }
 
@@ -137,7 +152,7 @@ impl Cache {
         self.cache_dir.join(cache_type.filename())
     }
 
-    /// Get cached data if valid
+    /// Get cached data if valid (uses the instance's TTL for expiry checks)
     pub fn get(&self, cache_type: CacheType) -> Option<Value> {
         let path = self.cache_path(cache_type);
         if !path.exists() {
@@ -147,7 +162,7 @@ impl Cache {
         let content = fs::read_to_string(&path).ok()?;
         let entry: CacheEntry = serde_json::from_str(&content).ok()?;
 
-        if entry.is_valid() {
+        if entry.is_valid_with_ttl(self.ttl_seconds) {
             Some(entry.data)
         } else {
             // Cache expired, remove it
@@ -234,18 +249,63 @@ impl Cache {
         Ok(())
     }
 
-    /// Get cached data for a specific key within a cache type (e.g., statuses for a specific team)
+    /// Get cached data for a specific key within a cache type (e.g., statuses for a specific team).
+    /// Uses per-key timestamps to check validity, so updating one key doesn't refresh others.
     pub fn get_keyed(&self, cache_type: CacheType, key: &str) -> Option<Value> {
-        let data = self.get(cache_type)?;
-        data.get(key).cloned()
+        let path = self.cache_path(cache_type);
+        if !path.exists() {
+            return None;
+        }
+
+        let content = fs::read_to_string(&path).ok()?;
+        let entry: CacheEntry = serde_json::from_str(&content).ok()?;
+        let wrapper = entry.data.get(key)?;
+
+        // New format: {"data": ..., "timestamp": unix_seconds}
+        if let (Some(data), Some(ts)) = (wrapper.get("data"), wrapper.get("timestamp")) {
+            let timestamp = ts.as_u64()?;
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or(Duration::ZERO)
+                .as_secs();
+            if now < timestamp + self.ttl_seconds {
+                return Some(data.clone());
+            }
+            return None;
+        }
+
+        // Old format (no per-key timestamp): treat as expired for backwards compatibility
+        None
     }
 
-    /// Set cached data for a specific key within a cache type
+    /// Set cached data for a specific key within a cache type.
+    /// Stores a per-key timestamp so each key expires independently.
     pub fn set_keyed(&self, cache_type: CacheType, key: &str, value: Value) -> Result<()> {
-        let mut data = self.get(cache_type).unwrap_or_else(|| json!({}));
+        // Read existing file data without TTL checks (we manage per-key TTLs)
+        let path = self.cache_path(cache_type);
+        let mut data = if path.exists() {
+            fs::read_to_string(&path)
+                .ok()
+                .and_then(|content| serde_json::from_str::<CacheEntry>(&content).ok())
+                .map(|entry| entry.data)
+                .unwrap_or_else(|| json!({}))
+        } else {
+            json!({})
+        };
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::ZERO)
+            .as_secs();
 
         if let Some(obj) = data.as_object_mut() {
-            obj.insert(key.to_string(), value);
+            obj.insert(
+                key.to_string(),
+                json!({
+                    "data": value,
+                    "timestamp": now,
+                }),
+            );
         }
 
         self.set(cache_type, data)
@@ -299,13 +359,7 @@ impl Cache {
 }
 
 pub fn cache_dir_path() -> Result<PathBuf> {
-    let profile = config::current_profile().unwrap_or_else(|_| "default".to_string());
-    let config_dir = dirs::config_dir()
-        .context("Could not find config directory")?
-        .join("linear-cli")
-        .join("cache")
-        .join(profile);
-    Ok(config_dir)
+    Cache::cache_dir()
 }
 
 /// Status information for a cache type
