@@ -1,6 +1,6 @@
 ---
 name: linear-notifications
-description: Manage Linear notifications. Use for viewing and clearing notifications.
+description: Manage Linear notifications. Use for viewing, reading, and archiving notifications.
 allowed-tools: Bash
 ---
 
@@ -19,6 +19,12 @@ linear-cli n read NOTIFICATION_ID
 
 # Mark all as read
 linear-cli n read-all
+
+# Archive a notification
+linear-cli n archive NOTIFICATION_ID
+
+# Archive all notifications
+linear-cli n archive-all
 ```
 
 ## Flags
