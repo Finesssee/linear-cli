@@ -7,7 +7,7 @@ use tabled::{Table, Tabled};
 use crate::api::LinearClient;
 use crate::display_options;
 use crate::output::{ensure_non_empty, filter_values, print_json, sort_values, OutputOptions};
-use crate::pagination::paginate_nodes;
+use crate::pagination::{paginate_nodes, PaginationOptions};
 use crate::text::truncate;
 
 #[derive(Subcommand)]
@@ -245,25 +245,40 @@ async fn mark_as_read(id: &str) -> Result<()> {
     Ok(())
 }
 
+
 async fn mark_all_as_read() -> Result<()> {
     let client = LinearClient::new()?;
 
     let query = r#"
-        query {
-            notifications(first: 100) {
+        query($first: Int, $after: String) {
+            notifications(first: $first, after: $after) {
                 nodes {
                     id
                     readAt
+                }
+                pageInfo {
+                    hasNextPage
+                    endCursor
                 }
             }
         }
     "#;
 
-    let result = client.query(query, None).await?;
-    let empty = vec![];
-    let notifications = result["data"]["notifications"]["nodes"]
-        .as_array()
-        .unwrap_or(&empty);
+    let pagination = PaginationOptions {
+        all: true,
+        ..Default::default()
+    };
+
+    let notifications = paginate_nodes(
+        &client,
+        query,
+        serde_json::Map::new(),
+        &["data", "notifications", "nodes"],
+        &["data", "notifications", "pageInfo"],
+        &pagination,
+        100,
+    )
+    .await?;
 
     let unread: Vec<_> = notifications
         .iter()
@@ -328,21 +343,35 @@ async fn show_count(output: &OutputOptions) -> Result<()> {
     let client = LinearClient::new()?;
 
     let query = r#"
-        query {
-            notifications(first: 100) {
+        query($first: Int, $after: String) {
+            notifications(first: $first, after: $after) {
                 nodes {
                     id
                     readAt
+                }
+                pageInfo {
+                    hasNextPage
+                    endCursor
                 }
             }
         }
     "#;
 
-    let result = client.query(query, None).await?;
-    let empty = vec![];
-    let notifications = result["data"]["notifications"]["nodes"]
-        .as_array()
-        .unwrap_or(&empty);
+    let pagination = PaginationOptions {
+        all: true,
+        ..Default::default()
+    };
+
+    let notifications = paginate_nodes(
+        &client,
+        query,
+        serde_json::Map::new(),
+        &["data", "notifications", "nodes"],
+        &["data", "notifications", "pageInfo"],
+        &pagination,
+        100,
+    )
+    .await?;
 
     let unread_count = notifications
         .iter()
