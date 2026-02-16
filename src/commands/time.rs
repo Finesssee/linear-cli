@@ -193,11 +193,10 @@ async fn log_time(issue_id: &str, duration: &str, description: Option<String>) -
                 );
             }
         }
-        Err(_) => {
-            // Fallback message - Linear's time tracking API varies by plan
-            println!(
-                "{} Time tracking API not available. This feature requires Linear's time tracking add-on.",
-                "!".yellow()
+        Err(e) => {
+            anyhow::bail!(
+                "Time tracking API not available: {}. This feature requires Linear's time tracking add-on.",
+                e
             );
         }
     }
@@ -328,10 +327,10 @@ async fn list_time_entries(issue_filter: Option<String>, output: &OutputOptions)
             let table = Table::new(rows).to_string();
             println!("{}", table);
         }
-        Err(_) => {
-            println!(
-                "{} Time tracking API not available. This feature requires Linear's time tracking add-on.",
-                "!".yellow()
+        Err(e) => {
+            anyhow::bail!(
+                "Time tracking API not available: {}. This feature requires Linear's time tracking add-on.",
+                e
             );
         }
     }
