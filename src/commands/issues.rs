@@ -5,7 +5,9 @@ use serde_json::{json, Map, Value};
 use std::io::{self, BufRead};
 use tabled::{Table, Tabled};
 
-use crate::api::{resolve_label_id, resolve_state_id, resolve_team_id, resolve_user_id, LinearClient};
+use crate::api::{
+    resolve_label_id, resolve_state_id, resolve_team_id, resolve_user_id, LinearClient,
+};
 use crate::display_options;
 use crate::input::read_ids_from_stdin;
 use crate::output::{ensure_non_empty, filter_values, print_json, sort_values, OutputOptions};

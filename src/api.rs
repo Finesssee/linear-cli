@@ -123,13 +123,11 @@ fn http_error(status: StatusCode, headers: &HeaderMap, context: &str) -> CliErro
         403 => CliError::auth(format!("Access denied - {}", context)),
         404 => CliError::not_found(format!("{} not found", context)),
         429 => CliError::rate_limited("Rate limit exceeded").with_retry_after(retry_after),
-        _ => CliError::general(
-            format!(
-                "HTTP {} {}",
-                status.as_u16(),
-                details["reason"].as_str().unwrap_or("Unknown error")
-            ),
-        ),
+        _ => CliError::general(format!(
+            "HTTP {} {}",
+            status.as_u16(),
+            details["reason"].as_str().unwrap_or("Unknown error")
+        )),
     };
     err.with_details(details)
 }
@@ -301,11 +299,7 @@ pub async fn resolve_project_id(
 
 /// Resolve a state name to a UUID for a given team.
 /// States are team-scoped in Linear, so the team_id must be provided.
-pub async fn resolve_state_id(
-    client: &LinearClient,
-    team_id: &str,
-    state: &str,
-) -> Result<String> {
+pub async fn resolve_state_id(client: &LinearClient, team_id: &str, state: &str) -> Result<String> {
     if is_uuid(state) {
         return Ok(state.to_string());
     }
@@ -545,7 +539,11 @@ impl LinearClient {
     }
 
     /// Stream response bytes directly to a writer (for large downloads)
-    pub async fn fetch_to_writer(&self, url: &str, writer: &mut impl std::io::Write) -> Result<u64> {
+    pub async fn fetch_to_writer(
+        &self,
+        url: &str,
+        writer: &mut impl std::io::Write,
+    ) -> Result<u64> {
         let response = self
             .client
             .get(url)

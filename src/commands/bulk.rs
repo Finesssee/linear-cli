@@ -64,7 +64,6 @@ struct BulkResult {
     error: Option<String>,
 }
 
-
 /// Get issue details including UUID and team ID from identifier (e.g., "LIN-123")
 async fn get_issue_info(
     client: &LinearClient,

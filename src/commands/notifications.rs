@@ -245,7 +245,6 @@ async fn mark_as_read(id: &str) -> Result<()> {
     Ok(())
 }
 
-
 async fn mark_all_as_read() -> Result<()> {
     let client = LinearClient::new()?;
 
