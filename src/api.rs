@@ -437,6 +437,31 @@ impl LinearClient {
             .to_vec();
         Ok(bytes)
     }
+
+    /// Stream response bytes directly to a writer (for large downloads)
+    pub async fn fetch_to_writer(&self, url: &str, writer: &mut impl std::io::Write) -> Result<u64> {
+        let response = self
+            .client
+            .get(url)
+            .header("Authorization", &self.api_key)
+            .send()
+            .await
+            .context("Failed to connect to Linear uploads")?;
+
+        let status = response.status();
+        let headers = response.headers().clone();
+        if !status.is_success() {
+            return Err(http_error(status, &headers, "upload").into());
+        }
+
+        let bytes = response
+            .bytes()
+            .await
+            .context("Failed to read response body")?;
+        let len = bytes.len() as u64;
+        writer.write_all(&bytes)?;
+        Ok(len)
+    }
 }
 
 static DEFAULT_RETRY: OnceLock<RetryConfig> = OnceLock::new();

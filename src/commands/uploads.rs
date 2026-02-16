@@ -33,18 +33,22 @@ async fn fetch_upload(url: &str, file: Option<String>) -> Result<()> {
     }
 
     let client = LinearClient::new()?;
-    let bytes = client
-        .fetch_bytes(url)
-        .await
-        .context("Failed to fetch upload from Linear")?;
 
     if let Some(file_path) = file {
-        // Write to file
-        std::fs::write(&file_path, &bytes)
-            .with_context(|| format!("Failed to write to file: {}", file_path))?;
-        eprintln!("Downloaded {} bytes to {}", bytes.len(), file_path);
+        // Stream directly to file
+        let mut file = std::fs::File::create(&file_path)
+            .with_context(|| format!("Failed to create file: {}", file_path))?;
+        let bytes_written = client
+            .fetch_to_writer(url, &mut file)
+            .await
+            .context("Failed to fetch upload from Linear")?;
+        eprintln!("Downloaded {} bytes to {}", bytes_written, file_path);
     } else {
-        // Write to stdout
+        // Write to stdout (need buffer)
+        let bytes = client
+            .fetch_bytes(url)
+            .await
+            .context("Failed to fetch upload from Linear")?;
         let mut stdout_handle = io::stdout().lock();
         stdout_handle
             .write_all(&bytes)
