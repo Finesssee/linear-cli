@@ -330,7 +330,9 @@ enum Commands {
     #[command(alias = "c")]
     #[command(after_help = r#"EXAMPLES:
     linear cycles list -t ENG               # List team cycles
-    linear c current -t ENG                 # Show current cycle"#)]
+    linear c current -t ENG                 # Show current cycle
+    linear c create -t ENG --name "Sprint 5" # Create a cycle
+    linear c update ID --name "Sprint 5b"   # Update cycle name"#)]
     Cycles {
         #[command(subcommand)]
         action: cycles::CycleCommands,
@@ -419,7 +421,9 @@ enum Commands {
     #[command(after_help = r#"EXAMPLES:
     linear notifications list               # List unread notifications
     linear n count                          # Show unread count
-    linear n read-all                       # Mark all as read"#)]
+    linear n read-all                       # Mark all as read
+    linear n archive NOTIF_ID              # Archive a notification
+    linear n archive-all                   # Archive all notifications"#)]
     Notifications {
         #[command(subcommand)]
         action: notifications::NotificationCommands,
