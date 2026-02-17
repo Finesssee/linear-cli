@@ -955,6 +955,7 @@ dependencies = [
  "hex",
  "hmac",
  "keyring",
+ "libc",
  "open",
  "rand",
  "regex",
