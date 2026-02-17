@@ -741,8 +741,21 @@ enum WatchCommands {
     },
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    // Spawn with 8 MB stack to accommodate clap derive macro stack usage
+    // with many subcommand variants (default 1 MB overflows in debug builds).
+    let builder = std::thread::Builder::new().stack_size(8 * 1024 * 1024);
+    let handler = builder.spawn(|| {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create tokio runtime")
+            .block_on(async_main())
+    })?;
+    handler.join().unwrap()
+}
+
+async fn async_main() -> Result<()> {
     let cli = Cli::parse();
     if cli.no_color || cli.color_mode == ColorChoice::Never {
         colored::control::set_override(false);
