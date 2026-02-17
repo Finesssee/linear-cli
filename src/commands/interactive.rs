@@ -218,6 +218,86 @@ async fn create_issue_interactive(client: &LinearClient, team: &Team) -> Result<
         _ => 0,
     };
 
+    // Fetch team states and members for optional fields
+    let meta_query = r#"
+        query($teamId: String!) {
+            team(id: $teamId) {
+                states { nodes { id name type } }
+                members { nodes { id name } }
+                labels { nodes { id name } }
+            }
+        }
+    "#;
+    let meta_result = client
+        .query(meta_query, Some(json!({ "teamId": team.id })))
+        .await?;
+    let team_data = &meta_result["data"]["team"];
+
+    // Assignee selection
+    let mut assignee_id: Option<String> = None;
+    if let Some(members) = team_data["members"]["nodes"].as_array() {
+        if !members.is_empty() {
+            let mut names: Vec<String> = vec!["(Skip)".to_string()];
+            names.extend(members.iter().filter_map(|m| {
+                m["name"].as_str().map(|s| s.to_string())
+            }));
+            let sel = Select::new()
+                .with_prompt("Assignee")
+                .items(&names)
+                .default(0)
+                .interact()?;
+            if sel > 0 {
+                assignee_id = members[sel - 1]["id"].as_str().map(|s| s.to_string());
+            }
+        }
+    }
+
+    // Status selection
+    let mut state_id: Option<String> = None;
+    if let Some(states) = team_data["states"]["nodes"].as_array() {
+        if !states.is_empty() {
+            let mut names: Vec<String> = vec!["(Default)".to_string()];
+            names.extend(states.iter().filter_map(|s| {
+                s["name"].as_str().map(|n| n.to_string())
+            }));
+            let sel = Select::new()
+                .with_prompt("Status")
+                .items(&names)
+                .default(0)
+                .interact()?;
+            if sel > 0 {
+                state_id = states[sel - 1]["id"].as_str().map(|s| s.to_string());
+            }
+        }
+    }
+
+    // Label selection
+    let mut label_ids: Vec<String> = Vec::new();
+    if let Some(labels) = team_data["labels"]["nodes"].as_array() {
+        if !labels.is_empty() {
+            let mut names: Vec<String> = vec!["(Skip)".to_string()];
+            names.extend(labels.iter().filter_map(|l| {
+                l["name"].as_str().map(|n| n.to_string())
+            }));
+            let sel = Select::new()
+                .with_prompt("Label")
+                .items(&names)
+                .default(0)
+                .interact()?;
+            if sel > 0 {
+                if let Some(id) = labels[sel - 1]["id"].as_str() {
+                    label_ids.push(id.to_string());
+                }
+            }
+        }
+    }
+
+    // Due date
+    let due_date: String = Input::new()
+        .with_prompt("Due date (YYYY-MM-DD, +3d, tomorrow, or empty)")
+        .allow_empty(true)
+        .interact_text()?;
+
     let confirm = Confirm::new()
         .with_prompt("Create this issue?")
         .default(true)
@@ -238,6 +318,20 @@ async fn create_issue_interactive(client: &LinearClient, team: &Team) -> Result<
     }
     if priority > 0 {
         input["priority"] = json!(priority);
+    }
+    if let Some(aid) = assignee_id {
+        input["assigneeId"] = json!(aid);
+    }
+    if let Some(sid) = state_id {
+        input["stateId"] = json!(sid);
+    }
+    if !label_ids.is_empty() {
+        input["labelIds"] = json!(label_ids);
+    }
+    if !due_date.is_empty() {
+        if let Some(parsed) = crate::dates::parse_due_date(&due_date) {
+            input["dueDate"] = json!(parsed);
+        }
     }
 
     let mutation = r#"
