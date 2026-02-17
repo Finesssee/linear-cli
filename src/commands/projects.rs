@@ -110,6 +110,11 @@ pub enum ProjectCommands {
         #[arg(required = true)]
         labels: Vec<String>,
     },
+    /// List project members
+    Members {
+        /// Project ID or name
+        id: String,
+    },
 }
 
 #[derive(Tabled)]
@@ -154,6 +159,7 @@ pub async fn handle(cmd: ProjectCommands, output: &OutputOptions) -> Result<()> 
         }
         ProjectCommands::Delete { id, force } => delete_project(&id, force).await,
         ProjectCommands::AddLabels { id, labels } => add_labels(&id, labels, output).await,
+        ProjectCommands::Members { id } => list_project_members(&id, output).await,
     }
 }
 
@@ -745,6 +751,91 @@ async fn add_labels(id: &str, label_ids: Vec<String>, output: &OutputOptions) ->
     } else {
         anyhow::bail!("Failed to add labels");
     }
+
+    Ok(())
+}
+
+async fn list_project_members(id: &str, output: &OutputOptions) -> Result<()> {
+    let client = LinearClient::new()?;
+    let project_id = resolve_project_id(&client, id, &output.cache).await?;
+
+    let query = r#"
+        query($id: String!) {
+            project(id: $id) {
+                name
+                members {
+                    nodes {
+                        id
+                        name
+                        email
+                        displayName
+                    }
+                }
+            }
+        }
+    "#;
+
+    let result = client
+        .query(query, Some(json!({ "id": project_id })))
+        .await?;
+    let project = &result["data"]["project"];
+
+    if project.is_null() {
+        anyhow::bail!("Project not found: {}", id);
+    }
+
+    let members = project["members"]["nodes"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+
+    if output.is_json() || output.has_template() {
+        print_json_owned(serde_json::json!(members), output)?;
+        return Ok(());
+    }
+
+    let mut members = members;
+    filter_values(&mut members, &output.filters);
+
+    if let Some(sort_key) = output.json.sort.as_deref() {
+        sort_values(&mut members, sort_key, output.json.order);
+    }
+
+    ensure_non_empty(&members, output)?;
+    if members.is_empty() {
+        println!("No members found.");
+        return Ok(());
+    }
+
+    let proj_name = project["name"].as_str().unwrap_or(id);
+    let width = display_options().max_width(30);
+
+    #[derive(Tabled)]
+    struct MemberRow {
+        #[tabled(rename = "Name")]
+        name: String,
+        #[tabled(rename = "Email")]
+        email: String,
+    }
+
+    let rows: Vec<MemberRow> = members
+        .iter()
+        .map(|m| MemberRow {
+            name: truncate(
+                m["displayName"]
+                    .as_str()
+                    .or_else(|| m["name"].as_str())
+                    .unwrap_or(""),
+                width,
+            ),
+            email: m["email"].as_str().unwrap_or("").to_string(),
+        })
+        .collect();
+
+    let table = Table::new(rows).to_string();
+    println!("Project: {}\n", proj_name.bold());
+    println!("{}", table);
+    println!("\n{} members", members.len());
 
     Ok(())
 }
