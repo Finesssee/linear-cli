@@ -41,6 +41,9 @@ base64 = "0.22"
 hmac = "0.12"
 hex = "0.4"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [features]
 default = []
 secure-storage = ["keyring"]

@@ -30,6 +30,7 @@ use error::CliError;
 use output::print_json_owned;
 use output::{parse_filters, JsonOutputOptions, OutputOptions, SortOrder};
 use pagination::PaginationOptions;
+use std::io::IsTerminal;
 use std::sync::OnceLock;
 
 /// Output format for command results
@@ -217,6 +218,10 @@ struct Cli {
     /// Print JSON schema version info and exit
     #[arg(long, global = true)]
     schema: bool,
+
+    /// Disable pager for output (default: auto-detect from terminal)
+    #[arg(long, global = true, env = "LINEAR_CLI_NO_PAGER")]
+    no_pager: bool,
 
     /// Show common tasks and examples
     #[command(subcommand)]
@@ -810,6 +815,13 @@ async fn main() -> Result<()> {
         std::process::exit(0);
     }
 
+    // Set up pager for table output when stdout is a terminal
+    let _pager_guard = if should_use_pager(cli.no_pager, &cli.output, cli.quiet) {
+        setup_pager()
+    } else {
+        None
+    };
+
     let result = run_command(cli.command, &output, agent_opts, cli.retry).await;
 
     match result {
@@ -1009,6 +1021,83 @@ async fn run_command(
     }
 
     Ok(())
+}
+
+/// Determine if pager should be used
+fn should_use_pager(no_pager: bool, format: &OutputFormat, quiet: bool) -> bool {
+    if no_pager || quiet {
+        return false;
+    }
+    // Only page table output, not JSON/NDJSON (those are for scripts)
+    if !matches!(format, OutputFormat::Table) {
+        return false;
+    }
+    // Only page when stdout is a terminal
+    std::io::stdout().is_terminal()
+}
+
+/// Set up pager by spawning pager process and redirecting stdout.
+/// Returns a guard that waits for the pager to finish when dropped.
+fn setup_pager() -> Option<PagerGuard> {
+    // Set LESS options if not already set (like git does)
+    // -R: raw control chars (colors), -X: don't clear screen, -F: quit if one screen
+    if std::env::var("LESS").is_err() {
+        std::env::set_var("LESS", "-R -X -F");
+    }
+
+    let pager_cmd = std::env::var("PAGER").unwrap_or_else(|_| "less".to_string());
+    if pager_cmd == "cat" || pager_cmd.is_empty() {
+        return None;
+    }
+
+    // Try to spawn pager with stdin piped
+    let mut child = match std::process::Command::new(&pager_cmd)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(_) => return None, // Pager not available, continue without it
+    };
+
+    let child_stdin = match child.stdin.take() {
+        Some(stdin) => stdin,
+        None => return None,
+    };
+
+    // Redirect stdout (fd 1) to the pager's stdin using dup2.
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::AsRawFd;
+        let pager_fd = child_stdin.as_raw_fd();
+        unsafe { libc::dup2(pager_fd, 1); }
+        Some(PagerGuard {
+            child,
+            _stdin: Some(child_stdin),
+        })
+    }
+
+    #[cfg(not(unix))]
+    {
+        // On non-Unix platforms, pager redirect is not supported — skip
+        drop(child_stdin);
+        let _ = child.kill();
+        None
+    }
+}
+
+/// Guard that waits for the pager process to exit when dropped
+struct PagerGuard {
+    child: std::process::Child,
+    _stdin: Option<std::process::ChildStdin>,
+}
+
+impl Drop for PagerGuard {
+    fn drop(&mut self) {
+        // Close stdin pipe first so the pager knows we're done
+        self._stdin.take();
+        // Then wait for pager to finish
+        let _ = self.child.wait();
+    }
 }
 
 /// Handle the context command - detect current Linear issue from git branch
