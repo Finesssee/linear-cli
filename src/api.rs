@@ -408,6 +408,58 @@ fn find_project_id(projects: &[Value], project: &str) -> Option<String> {
     }
     None
 }
+/// Resolve a custom view name to a UUID.
+pub async fn resolve_view_id(
+    client: &LinearClient,
+    view: &str,
+    cache_opts: &CacheOptions,
+) -> Result<String> {
+    if is_uuid(view) {
+        return Ok(view.to_string());
+    }
+
+    let config = ResolverConfig {
+        cache_type: CacheType::Views,
+        filtered_query: r#"
+            query($view: String!) {
+                customViews(first: 50, filter: { name: { eqIgnoreCase: $view } }) {
+                    nodes { id name }
+                }
+            }
+        "#,
+        filtered_var_name: "view",
+        filtered_nodes_path: &["data", "customViews", "nodes"],
+        paginated_query: r#"
+            query($first: Int, $after: String) {
+                customViews(first: $first, after: $after) {
+                    nodes { id name }
+                    pageInfo { hasNextPage endCursor }
+                }
+            }
+        "#,
+        paginated_nodes_path: &["data", "customViews", "nodes"],
+        paginated_page_info_path: &["data", "customViews", "pageInfo"],
+        not_found_msg: &format!(
+            "Custom view not found: {}. Use linear-cli views list to see available views.",
+            view
+        ),
+    };
+
+    resolve_id(client, view, cache_opts, &config, find_view_id).await
+}
+
+fn find_view_id(views: &[Value], view: &str) -> Option<String> {
+    for v in views {
+        let name = v["name"].as_str().unwrap_or("");
+        if name.eq_ignore_ascii_case(view) {
+            if let Some(id) = v["id"].as_str() {
+                return Some(id.to_string());
+            }
+        }
+    }
+    None
+}
+
 /// Authentication state for the API client
 #[derive(Clone, Debug)]
 pub enum AuthState {
