@@ -837,6 +837,9 @@ async fn get_issue(id: &str, output: &OutputOptions, history: bool) -> Result<()
                 labels { nodes { name color } }
                 project { name }
                 parent { identifier title }
+                children { nodes { identifier title state { name } } }
+                dueDate
+                estimate
                 history(first: 15) {
                     nodes {
                         createdAt
@@ -879,6 +882,9 @@ async fn get_issue(id: &str, output: &OutputOptions, history: bool) -> Result<()
                 labels { nodes { name color } }
                 project { name }
                 parent { identifier title }
+                children { nodes { identifier title state { name } } }
+                dueDate
+                estimate
             }
         }
         "#
@@ -947,6 +953,26 @@ async fn get_issue(id: &str, output: &OutputOptions, history: bool) -> Result<()
         if !labels.is_empty() {
             let label_names: Vec<&str> = labels.iter().filter_map(|l| l["name"].as_str()).collect();
             println!("Labels:   {}", label_names.join(", "));
+        }
+    }
+
+    if let Some(due) = issue["dueDate"].as_str() {
+        println!("Due:      {}", due);
+    }
+    if let Some(est) = issue["estimate"].as_f64() {
+        println!("Estimate: {}", est);
+    }
+
+    // Sub-issues
+    if let Some(children) = issue["children"]["nodes"].as_array() {
+        if !children.is_empty() {
+            println!("\n{} ({}):", "Sub-issues".bold(), children.len());
+            for child in children {
+                let cid = child["identifier"].as_str().unwrap_or("");
+                let ctitle = child["title"].as_str().unwrap_or("");
+                let cstate = child["state"]["name"].as_str().unwrap_or("-");
+                println!("  {} {} [{}]", cid.cyan(), ctitle, cstate);
+            }
         }
     }
 
