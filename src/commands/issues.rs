@@ -8,6 +8,7 @@ use tabled::{Table, Tabled};
 use crate::api::{
     resolve_label_id, resolve_state_id, resolve_team_id, resolve_user_id, LinearClient,
 };
+use crate::cache::CacheOptions;
 use crate::display_options;
 use crate::input::read_ids_from_stdin;
 use crate::output::{
@@ -243,6 +244,28 @@ pub enum IssueCommands {
         /// Issue ID or identifier
         id: String,
     },
+    /// Assign an issue to a user (shortcut for update --assignee)
+    Assign {
+        /// Issue ID or identifier
+        id: String,
+        /// User to assign (name, email, or "me"). Omit to unassign.
+        user: Option<String>,
+    },
+    /// Move an issue to a different project
+    #[command(alias = "mv")]
+    Move {
+        /// Issue ID or identifier
+        id: String,
+        /// Target project name or ID
+        project: String,
+    },
+    /// Transfer an issue to a different team
+    Transfer {
+        /// Issue ID or identifier
+        id: String,
+        /// Target team key or ID (e.g., "ENG")
+        team: String,
+    },
 }
 
 #[derive(Tabled)]
@@ -445,6 +468,9 @@ pub async fn handle(
         IssueCommands::Unarchive { id } => archive_issue(&id, false).await,
         IssueCommands::Comment { id, body } => comment_issue(&id, &body).await,
         IssueCommands::Link { id } => link_issue(&id).await,
+        IssueCommands::Assign { id, user } => assign_issue(&id, user).await,
+        IssueCommands::Move { id, project } => move_issue(&id, &project).await,
+        IssueCommands::Transfer { id, team } => transfer_issue(&id, &team).await,
     }
 }
 
@@ -2051,6 +2077,120 @@ async fn link_issue(id: &str) -> Result<()> {
     }
 
     println!("{}", url);
+    Ok(())
+}
+
+async fn assign_issue(id: &str, user: Option<String>) -> Result<()> {
+    let client = LinearClient::new()?;
+
+    let assignee_id = match &user {
+        Some(u) => {
+            let uid = crate::api::resolve_user_id(&client, u, &CacheOptions::default()).await?;
+            Some(uid)
+        }
+        None => None,
+    };
+
+    let mutation = r#"
+        mutation($id: String!, $input: IssueUpdateInput!) {
+            issueUpdate(id: $id, input: $input) {
+                success
+                issue { identifier assignee { name } }
+            }
+        }
+    "#;
+
+    let input = if let Some(ref uid) = assignee_id {
+        json!({ "assigneeId": uid })
+    } else {
+        json!({ "assigneeId": null })
+    };
+
+    let result = client
+        .mutate(mutation, Some(json!({ "id": id, "input": input })))
+        .await?;
+
+    if result["data"]["issueUpdate"]["success"].as_bool() == Some(true) {
+        let issue = &result["data"]["issueUpdate"]["issue"];
+        let ident = issue["identifier"].as_str().unwrap_or(id);
+        if let Some(name) = issue["assignee"]["name"].as_str() {
+            println!("{} Assigned {} to {}", "+".green(), ident.cyan(), name);
+        } else {
+            println!("{} Unassigned {}", "+".green(), ident.cyan());
+        }
+    } else {
+        anyhow::bail!("Failed to assign issue: {}", id);
+    }
+
+    Ok(())
+}
+
+async fn move_issue(id: &str, project: &str) -> Result<()> {
+    let client = LinearClient::new()?;
+    let project_id = crate::api::resolve_project_id(&client, project, &CacheOptions::default()).await?;
+
+    let mutation = r#"
+        mutation($id: String!, $input: IssueUpdateInput!) {
+            issueUpdate(id: $id, input: $input) {
+                success
+                issue { identifier project { name } }
+            }
+        }
+    "#;
+
+    let result = client
+        .mutate(
+            mutation,
+            Some(json!({ "id": id, "input": { "projectId": project_id } })),
+        )
+        .await?;
+
+    if result["data"]["issueUpdate"]["success"].as_bool() == Some(true) {
+        let issue = &result["data"]["issueUpdate"]["issue"];
+        let ident = issue["identifier"].as_str().unwrap_or(id);
+        let proj = issue["project"]["name"].as_str().unwrap_or(project);
+        println!("{} Moved {} to project {}", "+".green(), ident.cyan(), proj);
+    } else {
+        anyhow::bail!("Failed to move issue: {}", id);
+    }
+
+    Ok(())
+}
+
+async fn transfer_issue(id: &str, team: &str) -> Result<()> {
+    let client = LinearClient::new()?;
+    let team_id = crate::api::resolve_team_id(&client, team, &CacheOptions::default()).await?;
+
+    let mutation = r#"
+        mutation($id: String!, $input: IssueUpdateInput!) {
+            issueUpdate(id: $id, input: $input) {
+                success
+                issue { identifier team { name key } }
+            }
+        }
+    "#;
+
+    let result = client
+        .mutate(
+            mutation,
+            Some(json!({ "id": id, "input": { "teamId": team_id } })),
+        )
+        .await?;
+
+    if result["data"]["issueUpdate"]["success"].as_bool() == Some(true) {
+        let issue = &result["data"]["issueUpdate"]["issue"];
+        let ident = issue["identifier"].as_str().unwrap_or(id);
+        let team_name = issue["team"]["name"].as_str().unwrap_or(team);
+        println!(
+            "{} Transferred {} to team {}",
+            "+".green(),
+            ident.cyan(),
+            team_name
+        );
+    } else {
+        anyhow::bail!("Failed to transfer issue: {}", id);
+    }
+
     Ok(())
 }
 

@@ -1008,6 +1008,46 @@ fn test_issues_link_help() {
     );
 }
 
+#[test]
+fn test_issues_assign_help() {
+    let (code, stdout, _stderr) = run_cli(&["issues", "assign", "--help"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("Assign an issue"),
+        "issues assign should show help"
+    );
+}
+
+#[test]
+fn test_issues_move_help() {
+    let (code, stdout, _stderr) = run_cli(&["issues", "move", "--help"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("Move an issue"),
+        "issues move should show help"
+    );
+}
+
+#[test]
+fn test_issues_move_alias_mv() {
+    let (code, stdout, _stderr) = run_cli(&["issues", "mv", "--help"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("Move an issue"),
+        "mv alias should work for move"
+    );
+}
+
+#[test]
+fn test_issues_transfer_help() {
+    let (code, stdout, _stderr) = run_cli(&["issues", "transfer", "--help"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("Transfer an issue"),
+        "issues transfer should show help"
+    );
+}
+
 // === Milestone CRUD tests ===
 
 #[test]
