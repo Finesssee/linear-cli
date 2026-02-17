@@ -964,6 +964,26 @@ fn test_issues_close_alias_done() {
     );
 }
 
+#[test]
+fn test_issues_archive_help() {
+    let (code, stdout, _stderr) = run_cli(&["issues", "archive", "--help"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("Archive an issue"),
+        "issues archive should show help"
+    );
+}
+
+#[test]
+fn test_issues_unarchive_help() {
+    let (code, stdout, _stderr) = run_cli(&["issues", "unarchive", "--help"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("Unarchive an issue"),
+        "issues unarchive should show help"
+    );
+}
+
 // === Milestone CRUD tests ===
 
 #[test]

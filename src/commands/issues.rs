@@ -220,6 +220,16 @@ pub enum IssueCommands {
         /// Issue ID or identifier
         id: String,
     },
+    /// Archive an issue
+    Archive {
+        /// Issue ID or identifier
+        id: String,
+    },
+    /// Unarchive an issue
+    Unarchive {
+        /// Issue ID or identifier
+        id: String,
+    },
 }
 
 #[derive(Tabled)]
@@ -418,6 +428,8 @@ pub async fn handle(
         } => start_issue(&id, checkout, branch, agent_opts).await,
         IssueCommands::Stop { id, unassign } => stop_issue(&id, unassign, agent_opts).await,
         IssueCommands::Close { id } => close_issue(&id).await,
+        IssueCommands::Archive { id } => archive_issue(&id, true).await,
+        IssueCommands::Unarchive { id } => archive_issue(&id, false).await,
     }
 }
 
@@ -1918,6 +1930,41 @@ async fn close_issue(id: &str) -> Result<()> {
         );
     } else {
         anyhow::bail!("Failed to close issue");
+    }
+
+    Ok(())
+}
+
+async fn archive_issue(id: &str, archive: bool) -> Result<()> {
+    let client = LinearClient::new()?;
+
+    let mutation = if archive {
+        r#"
+        mutation($id: String!) {
+            issueArchive(id: $id) {
+                success
+            }
+        }
+        "#
+    } else {
+        r#"
+        mutation($id: String!) {
+            issueUnarchive(id: $id) {
+                success
+            }
+        }
+        "#
+    };
+
+    let result = client.mutate(mutation, Some(json!({ "id": id }))).await?;
+    let key = if archive { "issueArchive" } else { "issueUnarchive" };
+
+    if result["data"][key]["success"].as_bool() == Some(true) {
+        let action = if archive { "Archived" } else { "Unarchived" };
+        println!("{} {} issue: {}", "+".green(), action, id.cyan());
+    } else {
+        let action = if archive { "archive" } else { "unarchive" };
+        anyhow::bail!("Failed to {} issue: {}", action, id);
     }
 
     Ok(())
