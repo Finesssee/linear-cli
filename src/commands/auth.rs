@@ -50,7 +50,7 @@ pub enum AuthCommands {
         #[arg(long)]
         client_id: Option<String>,
         /// OAuth scopes (comma-separated)
-        #[arg(long, default_value = "read,write")]
+        #[arg(long, default_value = "read,write,admin")]
         scopes: String,
         /// Port for localhost callback server
         #[arg(long, default_value = "8484")]
