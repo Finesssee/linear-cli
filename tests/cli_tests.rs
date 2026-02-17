@@ -35,6 +35,17 @@ fn test_projects_help() {
     assert_eq!(code, 0);
     assert!(stdout.contains("list"));
     assert!(stdout.contains("create"));
+    assert!(stdout.contains("members"));
+}
+
+#[test]
+fn test_projects_members_help() {
+    let (code, stdout, _stderr) = run_cli(&["projects", "members", "--help"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("List project members"),
+        "projects members should show help"
+    );
 }
 
 #[test]
@@ -193,6 +204,19 @@ fn test_labels_help() {
     let (code, stdout, _stderr) = run_cli(&["labels", "--help"]);
     assert_eq!(code, 0);
     assert!(stdout.contains("list"));
+    assert!(stdout.contains("update"));
+}
+
+#[test]
+fn test_labels_update_help() {
+    let (code, stdout, _stderr) = run_cli(&["labels", "update", "--help"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("Update a label"),
+        "labels update should show help"
+    );
+    assert!(stdout.contains("--name"), "should accept --name flag");
+    assert!(stdout.contains("--color"), "should accept --color flag");
 }
 
 #[test]

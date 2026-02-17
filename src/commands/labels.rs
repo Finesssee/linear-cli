@@ -61,6 +61,20 @@ pub enum LabelCommands {
         #[arg(short, long)]
         force: bool,
     },
+    /// Update a label's name or color
+    Update {
+        /// Label ID
+        id: String,
+        /// Label type: issue or project
+        #[arg(short, long, default_value = "project")]
+        r#type: String,
+        /// New label name
+        #[arg(short, long)]
+        name: Option<String>,
+        /// New color (hex, e.g. "#FF5733")
+        #[arg(short, long)]
+        color: Option<String>,
+    },
 }
 
 #[derive(Tabled)]
@@ -85,6 +99,12 @@ pub async fn handle(cmd: LabelCommands, output: &OutputOptions) -> Result<()> {
             parent,
         } => create_label(&name, &r#type, &color, parent, output).await,
         LabelCommands::Delete { id, r#type, force } => delete_label(&id, &r#type, force).await,
+        LabelCommands::Update {
+            id,
+            r#type,
+            name,
+            color,
+        } => update_label(&id, &r#type, name, color).await,
     }
 }
 
@@ -343,6 +363,79 @@ async fn delete_label(id: &str, label_type: &str, force: bool) -> Result<()> {
         let _ = Cache::new().and_then(|c| c.clear_type(CacheType::Labels));
     } else {
         anyhow::bail!("Failed to delete label");
+    }
+
+    Ok(())
+}
+
+async fn update_label(
+    id: &str,
+    label_type: &str,
+    name: Option<String>,
+    color: Option<String>,
+) -> Result<()> {
+    if name.is_none() && color.is_none() {
+        println!("No updates specified. Use --name or --color.");
+        return Ok(());
+    }
+
+    let client = LinearClient::new()?;
+
+    let mut input = json!({});
+    if let Some(n) = &name {
+        input["name"] = json!(n);
+    }
+    if let Some(c) = &color {
+        input["color"] = json!(c);
+    }
+
+    let mutation = if label_type == "project" {
+        r#"
+            mutation($id: String!, $input: ProjectLabelUpdateInput!) {
+                projectLabelUpdate(id: $id, input: $input) {
+                    success
+                    projectLabel { id name color }
+                }
+            }
+        "#
+    } else {
+        r#"
+            mutation($id: String!, $input: IssueLabelUpdateInput!) {
+                issueLabelUpdate(id: $id, input: $input) {
+                    success
+                    issueLabel { id name color }
+                }
+            }
+        "#
+    };
+
+    let result = client
+        .mutate(mutation, Some(json!({ "id": id, "input": input })))
+        .await?;
+
+    let key = if label_type == "project" {
+        "projectLabelUpdate"
+    } else {
+        "issueLabelUpdate"
+    };
+    let label_key = if label_type == "project" {
+        "projectLabel"
+    } else {
+        "issueLabel"
+    };
+
+    if result["data"][key]["success"].as_bool() == Some(true) {
+        let label = &result["data"][key][label_key];
+        println!(
+            "{} Updated {} label: {}",
+            "+".green(),
+            label_type,
+            label["name"].as_str().unwrap_or("")
+        );
+
+        let _ = Cache::new().and_then(|c| c.clear_type(CacheType::Labels));
+    } else {
+        anyhow::bail!("Failed to update label");
     }
 
     Ok(())
