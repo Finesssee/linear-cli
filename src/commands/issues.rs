@@ -60,6 +60,9 @@ pub enum IssueCommands {
         /// Include archived issues
         #[arg(long)]
         archived: bool,
+        /// Group output by field (state, priority, assignee)
+        #[arg(long)]
+        group_by: Option<String>,
     },
     /// Get issue details
     #[command(after_help = r#"EXAMPLES:
@@ -240,9 +243,10 @@ pub async fn handle(
             view,
             since,
             archived,
+            group_by,
         } => {
             let assignee = if mine { Some("me".to_string()) } else { assignee };
-            list_issues(team, state, assignee, project, label, view, since, archived, output, agent_opts).await
+            list_issues(team, state, assignee, project, label, view, since, archived, group_by, output, agent_opts).await
         }
         IssueCommands::Get { ids, history, comments } => {
             // Support reading from stdin if no IDs provided or if "-" is passed
@@ -416,6 +420,7 @@ async fn list_issues(
     view: Option<String>,
     since: Option<String>,
     include_archived: bool,
+    group_by: Option<String>,
     output: &OutputOptions,
     _agent_opts: AgentOptions,
 ) -> Result<()> {
@@ -637,6 +642,51 @@ async fn list_issues(
     }
 
     let width = display_options().max_width(50);
+
+    // Grouped output
+    if let Some(ref group_field) = group_by {
+        let key_fn: Box<dyn Fn(&serde_json::Value) -> String> = match group_field.as_str() {
+            "state" | "status" => Box::new(|issue: &serde_json::Value| {
+                issue["state"]["name"].as_str().unwrap_or("Unknown").to_string()
+            }),
+            "priority" => Box::new(|issue: &serde_json::Value| {
+                priority_to_string(issue["priority"].as_i64())
+            }),
+            "assignee" => Box::new(|issue: &serde_json::Value| {
+                issue["assignee"]["name"].as_str().unwrap_or("Unassigned").to_string()
+            }),
+            "project" => Box::new(|issue: &serde_json::Value| {
+                issue["project"]["name"].as_str().unwrap_or("No Project").to_string()
+            }),
+            other => anyhow::bail!("Unknown --group-by field: '{}'. Use state, priority, assignee, or project.", other),
+        };
+
+        // Build groups preserving insertion order
+        let mut groups: Vec<(String, Vec<&serde_json::Value>)> = Vec::new();
+        let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for issue in &issues {
+            let key = key_fn(issue);
+            if let Some(&idx) = seen.get(&key) {
+                groups[idx].1.push(issue);
+            } else {
+                seen.insert(key.clone(), groups.len());
+                groups.push((key, vec![issue]));
+            }
+        }
+
+        for (group_name, group_issues) in &groups {
+            println!("\n{} ({})", group_name.cyan().bold(), group_issues.len());
+            println!("{}", "-".repeat(50));
+            for issue in group_issues {
+                let id = issue["identifier"].as_str().unwrap_or("");
+                let title = truncate(issue["title"].as_str().unwrap_or(""), width);
+                println!("  {} {}", id.cyan(), title);
+            }
+        }
+        println!("\n{} issues in {} groups", issues.len(), groups.len());
+        return Ok(());
+    }
+
     let rows: Vec<IssueRow> = issues
         .iter()
         .map(|issue| IssueRow {

@@ -914,6 +914,16 @@ fn test_issues_open_help() {
     );
 }
 
+#[test]
+fn test_issues_list_group_by_flag() {
+    let (code, stdout, _stderr) = run_cli(&["issues", "list", "--help"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("--group-by"),
+        "issues list should have --group-by flag"
+    );
+}
+
 // === Milestone CRUD tests ===
 
 #[test]
