@@ -944,6 +944,26 @@ fn test_projects_open_help() {
     );
 }
 
+#[test]
+fn test_issues_close_help() {
+    let (code, stdout, _stderr) = run_cli(&["issues", "close", "--help"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("Close an issue"),
+        "issues close should show help"
+    );
+}
+
+#[test]
+fn test_issues_close_alias_done() {
+    let (code, stdout, _stderr) = run_cli(&["issues", "done", "--help"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("Close an issue"),
+        "issues done alias should work"
+    );
+}
+
 // === Milestone CRUD tests ===
 
 #[test]

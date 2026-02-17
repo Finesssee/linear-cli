@@ -214,6 +214,12 @@ pub enum IssueCommands {
         #[arg(short, long)]
         unassign: bool,
     },
+    /// Close an issue (mark as Done)
+    #[command(alias = "done")]
+    Close {
+        /// Issue ID or identifier
+        id: String,
+    },
 }
 
 #[derive(Tabled)]
@@ -411,6 +417,7 @@ pub async fn handle(
             branch,
         } => start_issue(&id, checkout, branch, agent_opts).await,
         IssueCommands::Stop { id, unassign } => stop_issue(&id, unassign, agent_opts).await,
+        IssueCommands::Close { id } => close_issue(&id).await,
     }
 }
 
@@ -1826,6 +1833,91 @@ async fn stop_issue(id: &str, unassign: bool, agent_opts: AgentOptions) -> Resul
         }
     } else {
         anyhow::bail!("Failed to stop issue");
+    }
+
+    Ok(())
+}
+
+async fn close_issue(id: &str) -> Result<()> {
+    let client = LinearClient::new()?;
+
+    let query = r#"
+        query($id: String!) {
+            issue(id: $id) {
+                id
+                identifier
+                title
+                team {
+                    states {
+                        nodes {
+                            id
+                            name
+                            type
+                        }
+                    }
+                }
+            }
+        }
+    "#;
+
+    let result = client.query(query, Some(json!({ "id": id }))).await?;
+    let issue = &result["data"]["issue"];
+
+    if issue.is_null() {
+        anyhow::bail!("Issue not found: {}", id);
+    }
+
+    let empty = vec![];
+    let states = issue["team"]["states"]["nodes"]
+        .as_array()
+        .unwrap_or(&empty);
+
+    // Find a "completed" type state (e.g., "Done")
+    let done_state = states
+        .iter()
+        .find(|s| s["type"].as_str() == Some("completed"));
+
+    let state_id = match done_state {
+        Some(s) => s["id"].as_str().unwrap_or(""),
+        None => anyhow::bail!("No 'completed' state found for this team"),
+    };
+
+    let state_name = done_state
+        .and_then(|s| s["name"].as_str())
+        .unwrap_or("Done");
+
+    let mutation = r#"
+        mutation($id: String!, $input: IssueUpdateInput!) {
+            issueUpdate(id: $id, input: $input) {
+                success
+                issue {
+                    identifier
+                    title
+                    state { name }
+                }
+            }
+        }
+    "#;
+
+    let issue_uuid = issue["id"].as_str().unwrap_or(id);
+    let result = client
+        .mutate(mutation, Some(json!({ "id": issue_uuid, "input": { "stateId": state_id } })))
+        .await?;
+
+    if result["data"]["issueUpdate"]["success"].as_bool() == Some(true) {
+        let updated = &result["data"]["issueUpdate"]["issue"];
+        println!(
+            "{} Closed issue: {} {}",
+            "+".green(),
+            updated["identifier"].as_str().unwrap_or("").cyan(),
+            updated["title"].as_str().unwrap_or("")
+        );
+        println!(
+            "  State: {}",
+            updated["state"]["name"].as_str().unwrap_or(state_name)
+        );
+    } else {
+        anyhow::bail!("Failed to close issue");
     }
 
     Ok(())
