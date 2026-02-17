@@ -3,7 +3,9 @@ use futures::StreamExt;
 use reqwest::header::HeaderMap;
 use reqwest::{Client, StatusCode};
 use serde_json::{json, Value};
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::RwLock;
 
 use crate::cache::{Cache, CacheOptions, CacheType};
 use crate::config;
@@ -406,17 +408,61 @@ fn find_project_id(projects: &[Value], project: &str) -> Option<String> {
     }
     None
 }
+/// Authentication state for the API client
+#[derive(Clone, Debug)]
+pub enum AuthState {
+    /// Personal API key (sent as-is in Authorization header)
+    ApiKey(String),
+    /// OAuth tokens (sent as "Bearer {token}", supports auto-refresh)
+    OAuth {
+        access_token: String,
+        refresh_token: Option<String>,
+        client_id: String,
+        expires_at: Option<i64>,
+        profile: String,
+    },
+}
+
+impl AuthState {
+    /// Get the Authorization header value
+    pub fn auth_header(&self) -> String {
+        match self {
+            AuthState::ApiKey(key) => key.clone(),
+            AuthState::OAuth { access_token, .. } => format!("Bearer {}", access_token),
+        }
+    }
+
+    /// Check if the current auth needs refreshing
+    pub fn needs_refresh(&self) -> bool {
+        match self {
+            AuthState::ApiKey(_) => false,
+            AuthState::OAuth { expires_at, refresh_token, .. } => {
+                if refresh_token.is_none() {
+                    return false;
+                }
+                match expires_at {
+                    Some(exp) => {
+                        let buffer = 300; // 5 minutes
+                        chrono::Utc::now().timestamp() >= (*exp - buffer)
+                    }
+                    None => false,
+                }
+            }
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct LinearClient {
     client: Client,
-    api_key: String,
+    auth: Arc<RwLock<AuthState>>,
     retry: RetryConfig,
 }
 
 impl LinearClient {
     pub fn new() -> Result<Self> {
         let retry = default_retry_config();
-        let api_key = config::get_api_key()?;
+        let auth = Self::resolve_auth()?;
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
@@ -424,13 +470,13 @@ impl LinearClient {
             .build()?;
         Ok(Self {
             client,
-            api_key,
+            auth: Arc::new(RwLock::new(auth)),
             retry,
         })
     }
 
     pub fn new_with_retry(retry_count: u32) -> Result<Self> {
-        let api_key = config::get_api_key()?;
+        let auth = Self::resolve_auth()?;
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
@@ -438,7 +484,7 @@ impl LinearClient {
             .build()?;
         Ok(Self {
             client,
-            api_key,
+            auth: Arc::new(RwLock::new(auth)),
             retry: RetryConfig::new(retry_count),
         })
     }
@@ -451,7 +497,7 @@ impl LinearClient {
             .build()?;
         Ok(Self {
             client,
-            api_key,
+            auth: Arc::new(RwLock::new(AuthState::ApiKey(api_key))),
             retry: default_retry_config(),
         })
     }
@@ -465,6 +511,8 @@ impl LinearClient {
     }
 
     async fn query_once(&self, query: &str, variables: Option<Value>) -> Result<Value> {
+        let auth_header = self.ensure_fresh_auth().await?;
+
         let body = match variables {
             Some(vars) => json!({ "query": query, "variables": vars }),
             None => json!({ "query": query }),
@@ -474,7 +522,7 @@ impl LinearClient {
             .client
             .post(LINEAR_API_URL)
             .header("Content-Type", "application/json")
-            .header("Authorization", &self.api_key)
+            .header("Authorization", &auth_header)
             .json(&body)
             .send()
             .await?;
@@ -482,9 +530,7 @@ impl LinearClient {
         let status = response.status();
         let headers = response.headers().clone();
 
-        // Check HTTP status before parsing JSON to avoid confusing errors
         if !status.is_success() {
-            // Try to get error details from response body
             let body = response.text().await.unwrap_or_default();
             let details = if let Ok(json) = serde_json::from_str::<Value>(&body) {
                 json
@@ -520,10 +566,12 @@ impl LinearClient {
         url: &str,
         writer: &mut impl std::io::Write,
     ) -> Result<u64> {
+        let auth_header = self.ensure_fresh_auth().await?;
+
         let response = self
             .client
             .get(url)
-            .header("Authorization", &self.api_key)
+            .header("Authorization", &auth_header)
             .send()
             .await
             .context("Failed to connect to Linear uploads")?;
@@ -542,6 +590,87 @@ impl LinearClient {
             total += chunk.len() as u64;
         }
         Ok(total)
+    }
+
+    /// Resolve authentication from config (checks API key first, then OAuth)
+    fn resolve_auth() -> Result<AuthState> {
+        // Try standard API key first
+        let api_key = config::get_api_key()?;
+
+        // If it starts with "Bearer ", it's an OAuth token from get_api_key()
+        if api_key.starts_with("Bearer ") {
+            // Load full OAuth config for refresh support
+            let profile = config::current_profile().unwrap_or_else(|_| "default".to_string());
+            if let Ok(Some(oauth)) = config::get_oauth_config(&profile) {
+                return Ok(AuthState::OAuth {
+                    access_token: oauth.access_token,
+                    refresh_token: oauth.refresh_token,
+                    client_id: oauth.client_id,
+                    expires_at: oauth.expires_at,
+                    profile,
+                });
+            }
+            // Fallback: use as plain bearer token without refresh
+            return Ok(AuthState::ApiKey(api_key));
+        }
+
+        Ok(AuthState::ApiKey(api_key))
+    }
+
+    /// Ensure auth is fresh (refresh OAuth token if needed)
+    async fn ensure_fresh_auth(&self) -> Result<String> {
+        {
+            let auth = self.auth.read().await;
+            if !auth.needs_refresh() {
+                return Ok(auth.auth_header());
+            }
+        }
+
+        // Need to refresh - acquire write lock
+        let mut auth = self.auth.write().await;
+
+        // Double-check after acquiring write lock (another task may have refreshed)
+        if !auth.needs_refresh() {
+            return Ok(auth.auth_header());
+        }
+
+        match &*auth {
+            AuthState::OAuth { refresh_token, client_id, profile, .. } => {
+                let refresh_token = refresh_token.as_ref()
+                    .context("OAuth token expired but no refresh token available")?;
+
+                let new_tokens = crate::oauth::refresh_tokens(client_id, refresh_token).await?;
+
+                // Persist the new tokens
+                let scopes = if let Ok(Some(existing)) = config::get_oauth_config(profile) {
+                    existing.scopes
+                } else {
+                    vec![]
+                };
+
+                let oauth_config = config::OAuthConfig {
+                    client_id: client_id.clone(),
+                    access_token: new_tokens.access_token.clone(),
+                    refresh_token: new_tokens.refresh_token.clone(),
+                    expires_at: new_tokens.expires_at,
+                    token_type: new_tokens.token_type.clone(),
+                    scopes,
+                };
+                let _ = config::save_oauth_config(profile, &oauth_config);
+
+                let new_auth = AuthState::OAuth {
+                    access_token: new_tokens.access_token,
+                    refresh_token: new_tokens.refresh_token,
+                    client_id: client_id.clone(),
+                    expires_at: new_tokens.expires_at,
+                    profile: profile.clone(),
+                };
+                let header = new_auth.auth_header();
+                *auth = new_auth;
+                Ok(header)
+            }
+            AuthState::ApiKey(_) => Ok(auth.auth_header()),
+        }
     }
 }
 
