@@ -579,3 +579,62 @@ fn test_cycles_help_includes_create() {
     assert!(stdout.contains("create"));
     assert!(stdout.contains("update"));
 }
+
+// --- v0.3.6 OAuth tests ---
+
+#[test]
+fn test_auth_help_includes_oauth() {
+    let (code, stdout, _stderr) = run_cli(&["auth", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("oauth"), "auth help should list oauth subcommand");
+    assert!(stdout.contains("revoke"), "auth help should list revoke subcommand");
+    assert!(stdout.contains("login"));
+    assert!(stdout.contains("logout"));
+    assert!(stdout.contains("status"));
+}
+
+#[test]
+fn test_auth_oauth_help() {
+    let (code, stdout, _stderr) = run_cli(&["auth", "oauth", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("--client-id"));
+    assert!(stdout.contains("--scopes"));
+    assert!(stdout.contains("--port"));
+    assert!(stdout.contains("--secure"));
+}
+
+#[test]
+fn test_auth_oauth_default_scopes() {
+    let (code, stdout, _stderr) = run_cli(&["auth", "oauth", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("read,write"), "default scopes should be read,write");
+}
+
+#[test]
+fn test_auth_oauth_default_port() {
+    let (code, stdout, _stderr) = run_cli(&["auth", "oauth", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("8484"), "default port should be 8484");
+}
+
+#[test]
+fn test_auth_revoke_help() {
+    let (code, stdout, _stderr) = run_cli(&["auth", "revoke", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("--force"));
+}
+
+#[test]
+fn test_auth_status_help() {
+    let (code, stdout, _stderr) = run_cli(&["auth", "status", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("--validate"));
+}
+
+#[test]
+fn test_auth_help_examples_include_oauth() {
+    let (code, stdout, _stderr) = run_cli(&["auth", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("linear auth oauth"), "help examples should show oauth usage");
+    assert!(stdout.contains("linear auth revoke"), "help examples should show revoke usage");
+}

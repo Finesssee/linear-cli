@@ -688,3 +688,112 @@ pub fn set_default_retry(retry_count: u32) {
 fn default_retry_config() -> RetryConfig {
     DEFAULT_RETRY.get().copied().unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_auth_state_api_key_header() {
+        let state = AuthState::ApiKey("lin_api_key123".to_string());
+        assert_eq!(state.auth_header(), "lin_api_key123");
+    }
+
+    #[test]
+    fn test_auth_state_oauth_header() {
+        let state = AuthState::OAuth {
+            access_token: "oauth_token_abc".to_string(),
+            refresh_token: None,
+            client_id: "cid".to_string(),
+            expires_at: None,
+            profile: "default".to_string(),
+        };
+        assert_eq!(state.auth_header(), "Bearer oauth_token_abc");
+    }
+
+    #[test]
+    fn test_auth_state_api_key_no_refresh() {
+        let state = AuthState::ApiKey("key".to_string());
+        assert!(!state.needs_refresh(), "API key should never need refresh");
+    }
+
+    #[test]
+    fn test_auth_state_oauth_no_refresh_token() {
+        let state = AuthState::OAuth {
+            access_token: "tok".to_string(),
+            refresh_token: None,
+            client_id: "cid".to_string(),
+            expires_at: Some(chrono::Utc::now().timestamp() - 100), // expired
+            profile: "default".to_string(),
+        };
+        assert!(!state.needs_refresh(), "OAuth without refresh token should not need refresh even if expired");
+    }
+
+    #[test]
+    fn test_auth_state_oauth_needs_refresh_expired() {
+        let state = AuthState::OAuth {
+            access_token: "tok".to_string(),
+            refresh_token: Some("refresh".to_string()),
+            client_id: "cid".to_string(),
+            expires_at: Some(chrono::Utc::now().timestamp() - 100), // expired
+            profile: "default".to_string(),
+        };
+        assert!(state.needs_refresh(), "OAuth with expired token and refresh token should need refresh");
+    }
+
+    #[test]
+    fn test_auth_state_oauth_needs_refresh_within_buffer() {
+        let state = AuthState::OAuth {
+            access_token: "tok".to_string(),
+            refresh_token: Some("refresh".to_string()),
+            client_id: "cid".to_string(),
+            expires_at: Some(chrono::Utc::now().timestamp() + 200), // within 5min buffer
+            profile: "default".to_string(),
+        };
+        assert!(state.needs_refresh(), "OAuth expiring within buffer should need refresh");
+    }
+
+    #[test]
+    fn test_auth_state_oauth_no_refresh_needed_fresh() {
+        let state = AuthState::OAuth {
+            access_token: "tok".to_string(),
+            refresh_token: Some("refresh".to_string()),
+            client_id: "cid".to_string(),
+            expires_at: Some(chrono::Utc::now().timestamp() + 3600), // 1 hour from now
+            profile: "default".to_string(),
+        };
+        assert!(!state.needs_refresh(), "OAuth with fresh token should not need refresh");
+    }
+
+    #[test]
+    fn test_auth_state_oauth_no_expiry_no_refresh() {
+        let state = AuthState::OAuth {
+            access_token: "tok".to_string(),
+            refresh_token: Some("refresh".to_string()),
+            client_id: "cid".to_string(),
+            expires_at: None, // no expiry (legacy token)
+            profile: "default".to_string(),
+        };
+        assert!(!state.needs_refresh(), "OAuth without expiry should not need refresh");
+    }
+
+    #[test]
+    fn test_auth_state_clone() {
+        let state = AuthState::OAuth {
+            access_token: "tok".to_string(),
+            refresh_token: Some("ref".to_string()),
+            client_id: "cid".to_string(),
+            expires_at: Some(1700000000),
+            profile: "test".to_string(),
+        };
+        let cloned = state.clone();
+        assert_eq!(state.auth_header(), cloned.auth_header());
+    }
+
+    #[test]
+    fn test_auth_state_debug() {
+        let state = AuthState::ApiKey("key".to_string());
+        let debug = format!("{:?}", state);
+        assert!(debug.contains("ApiKey"), "Debug output should contain variant name");
+    }
+}

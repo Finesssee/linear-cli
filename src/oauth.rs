@@ -455,4 +455,121 @@ mod tests {
         assert_eq!(parsed.refresh_token, Some("ref".to_string()));
         assert_eq!(parsed.expires_at, Some(1700000000));
     }
+
+    #[test]
+    fn test_pkce_verifier_length() {
+        // RFC 7636 requires verifier to be 43-128 characters
+        let pkce = PkceChallenge::generate();
+        assert!(pkce.verifier.len() >= 43, "verifier should be at least 43 chars, got {}", pkce.verifier.len());
+        assert!(pkce.verifier.len() <= 128, "verifier should be at most 128 chars, got {}", pkce.verifier.len());
+    }
+
+    #[test]
+    fn test_pkce_verifier_charset() {
+        // RFC 7636: verifier uses unreserved characters [A-Z] / [a-z] / [0-9] / "-" / "." / "_" / "~"
+        let pkce = PkceChallenge::generate();
+        for c in pkce.verifier.chars() {
+            assert!(
+                c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '_' || c == '~',
+                "verifier contains invalid character: '{}' (0x{:02x})",
+                c, c as u32
+            );
+        }
+    }
+
+    #[test]
+    fn test_oauth_tokens_minimal_deserialize() {
+        // Minimal token response (no refresh, no expiry, no scope)
+        let json = r#"{"access_token":"tok","token_type":"Bearer"}"#;
+        let tokens: OAuthTokens = serde_json::from_str(json).unwrap();
+        assert_eq!(tokens.access_token, "tok");
+        assert_eq!(tokens.token_type, "Bearer");
+        assert!(tokens.refresh_token.is_none());
+        assert!(tokens.expires_at.is_none());
+        assert!(tokens.scope.is_none());
+    }
+
+    #[test]
+    fn test_oauth_tokens_full_deserialize() {
+        let json = r#"{
+            "access_token": "lin_oauth_abc",
+            "refresh_token": "lin_refresh_xyz",
+            "expires_at": 1700086400,
+            "token_type": "Bearer",
+            "scope": "read,write,issues:create"
+        }"#;
+        let tokens: OAuthTokens = serde_json::from_str(json).unwrap();
+        assert_eq!(tokens.access_token, "lin_oauth_abc");
+        assert_eq!(tokens.refresh_token.as_deref(), Some("lin_refresh_xyz"));
+        assert_eq!(tokens.expires_at, Some(1700086400));
+        assert_eq!(tokens.scope.as_deref(), Some("read,write,issues:create"));
+    }
+
+    #[test]
+    fn test_build_authorize_url_encodes_special_chars() {
+        let pkce = PkceChallenge::generate();
+        let url = build_authorize_url(
+            "client with spaces",
+            "http://localhost:8484/callback",
+            "read,write",
+            "state+special/chars",
+            &pkce,
+        );
+        // URL should encode spaces and special chars
+        assert!(url.contains("client+with+spaces") || url.contains("client%20with%20spaces"));
+        assert!(!url.contains(' '), "URL should not contain raw spaces");
+    }
+
+    #[test]
+    fn test_build_authorize_url_includes_prompt() {
+        let pkce = PkceChallenge::generate();
+        let url = build_authorize_url("c", "http://localhost:8484/callback", "read", "s", &pkce);
+        assert!(url.contains("prompt=consent"), "URL should include prompt=consent");
+    }
+
+    #[test]
+    fn test_is_expired_exactly_at_buffer_boundary() {
+        // Exactly 300 seconds (5 min buffer) from now — should be considered expired
+        let tokens = OAuthTokens {
+            access_token: "test".to_string(),
+            refresh_token: None,
+            expires_at: Some(chrono::Utc::now().timestamp() + 300),
+            token_type: "Bearer".to_string(),
+            scope: None,
+        };
+        assert!(is_expired(&tokens), "token expiring exactly at buffer boundary should be expired");
+    }
+
+    #[test]
+    fn test_is_expired_just_past_buffer() {
+        // 301 seconds from now — just past the buffer, should NOT be expired
+        let tokens = OAuthTokens {
+            access_token: "test".to_string(),
+            refresh_token: None,
+            expires_at: Some(chrono::Utc::now().timestamp() + 301),
+            token_type: "Bearer".to_string(),
+            scope: None,
+        };
+        assert!(!is_expired(&tokens), "token expiring 301s from now should not be expired");
+    }
+
+    #[test]
+    fn test_generate_state_length() {
+        let state = generate_state();
+        // 16 random bytes base64-encoded = ~22 chars
+        assert!(state.len() >= 20, "state should be at least 20 chars, got {}", state.len());
+    }
+
+    #[test]
+    fn test_base64_url_encode_empty() {
+        let encoded = base64_url_encode(&[]);
+        assert!(encoded.is_empty(), "encoding empty data should produce empty string");
+    }
+
+    #[test]
+    fn test_base64_url_encode_known_value() {
+        // Known test vector: base64url("test") = "dGVzdA"
+        let encoded = base64_url_encode(b"test");
+        assert_eq!(encoded, "dGVzdA");
+    }
 }

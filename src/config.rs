@@ -604,4 +604,114 @@ mod tests {
         assert!(config.workspaces["default"].oauth.is_none());
         assert!(config.workspaces["oauth-ws"].oauth.is_some());
     }
+
+    #[test]
+    fn test_oauth_config_roundtrip_toml() {
+        let mut config = Config::default();
+        config.current = Some("oauth-test".to_string());
+        config.workspaces.insert(
+            "oauth-test".to_string(),
+            Workspace {
+                api_key: String::new(),
+                oauth: Some(OAuthConfig {
+                    client_id: "my-app".to_string(),
+                    access_token: "lin_oauth_token123".to_string(),
+                    refresh_token: Some("lin_refresh_abc".to_string()),
+                    expires_at: Some(1700000000),
+                    token_type: "Bearer".to_string(),
+                    scopes: vec!["read".to_string(), "write".to_string()],
+                }),
+            },
+        );
+
+        let toml_str = toml::to_string_pretty(&config).unwrap();
+        let parsed: Config = toml::from_str(&toml_str).unwrap();
+
+        let ws = &parsed.workspaces["oauth-test"];
+        let oauth = ws.oauth.as_ref().unwrap();
+        assert_eq!(oauth.client_id, "my-app");
+        assert_eq!(oauth.access_token, "lin_oauth_token123");
+        assert_eq!(oauth.refresh_token.as_deref(), Some("lin_refresh_abc"));
+        assert_eq!(oauth.expires_at, Some(1700000000));
+        assert_eq!(oauth.token_type, "Bearer");
+        assert_eq!(oauth.scopes, vec!["read", "write"]);
+    }
+
+    #[test]
+    fn test_oauth_not_serialized_when_none() {
+        let mut config = Config::default();
+        config.current = Some("default".to_string());
+        config.workspaces.insert(
+            "default".to_string(),
+            Workspace {
+                api_key: "lin_api_key".to_string(),
+                oauth: None,
+            },
+        );
+
+        let toml_str = toml::to_string_pretty(&config).unwrap();
+        assert!(!toml_str.contains("[workspaces.default.oauth]"), "oauth section should not appear when None");
+        assert!(!toml_str.contains("client_id"));
+        assert!(!toml_str.contains("access_token"));
+    }
+
+    #[test]
+    fn test_oauth_config_empty_scopes() {
+        let toml_str = r#"
+            current = "test"
+
+            [workspaces.test]
+            api_key = ""
+
+            [workspaces.test.oauth]
+            client_id = "cid"
+            access_token = "tok"
+            token_type = "Bearer"
+        "#;
+
+        let config: Config = toml::from_str(toml_str).unwrap();
+        let oauth = config.workspaces["test"].oauth.as_ref().unwrap();
+        assert!(oauth.scopes.is_empty(), "scopes should default to empty vec");
+        assert!(oauth.refresh_token.is_none());
+        assert!(oauth.expires_at.is_none());
+    }
+
+    #[test]
+    fn test_oauth_config_json_roundtrip() {
+        let oauth = OAuthConfig {
+            client_id: "app-id".to_string(),
+            access_token: "access".to_string(),
+            refresh_token: Some("refresh".to_string()),
+            expires_at: Some(1700086400),
+            token_type: "Bearer".to_string(),
+            scopes: vec!["read".to_string(), "write".to_string(), "issues:create".to_string()],
+        };
+        let json = serde_json::to_string(&oauth).unwrap();
+        let parsed: OAuthConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.client_id, "app-id");
+        assert_eq!(parsed.scopes.len(), 3);
+        assert_eq!(parsed.scopes[2], "issues:create");
+    }
+
+    #[test]
+    fn test_workspace_with_both_apikey_and_oauth() {
+        let toml_str = r#"
+            current = "dual"
+
+            [workspaces.dual]
+            api_key = "lin_api_key_primary"
+
+            [workspaces.dual.oauth]
+            client_id = "cid"
+            access_token = "oauth_tok"
+            token_type = "Bearer"
+            scopes = ["read"]
+        "#;
+
+        let config: Config = toml::from_str(toml_str).unwrap();
+        let ws = &config.workspaces["dual"];
+        assert_eq!(ws.api_key, "lin_api_key_primary");
+        assert!(ws.oauth.is_some());
+        assert_eq!(ws.oauth.as_ref().unwrap().access_token, "oauth_tok");
+    }
 }
