@@ -607,7 +607,7 @@ fn test_auth_oauth_help() {
 fn test_auth_oauth_default_scopes() {
     let (code, stdout, _stderr) = run_cli(&["auth", "oauth", "--help"]);
     assert_eq!(code, 0);
-    assert!(stdout.contains("read,write"), "default scopes should be read,write");
+    assert!(stdout.contains("read,write,admin"), "default scopes should be read,write,admin");
 }
 
 #[test]
@@ -637,4 +637,150 @@ fn test_auth_help_examples_include_oauth() {
     assert_eq!(code, 0);
     assert!(stdout.contains("linear auth oauth"), "help examples should show oauth usage");
     assert!(stdout.contains("linear auth revoke"), "help examples should show revoke usage");
+}
+
+// --- v0.3.7 Views + Webhooks tests ---
+
+#[test]
+fn test_views_help() {
+    let (code, stdout, _stderr) = run_cli(&["views", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("list"));
+    assert!(stdout.contains("get"));
+    assert!(stdout.contains("create"));
+    assert!(stdout.contains("update"));
+    assert!(stdout.contains("delete"));
+}
+
+#[test]
+fn test_views_alias() {
+    let (code1, stdout1, _) = run_cli(&["v", "--help"]);
+    let (code2, stdout2, _) = run_cli(&["views", "--help"]);
+    assert_eq!(code1, 0);
+    assert_eq!(code2, 0);
+    assert_eq!(stdout1, stdout2);
+}
+
+#[test]
+fn test_views_create_help() {
+    let (code, stdout, _stderr) = run_cli(&["views", "create", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("--description"));
+    assert!(stdout.contains("--team"));
+    assert!(stdout.contains("--shared"));
+    assert!(stdout.contains("--filter-json"));
+    assert!(stdout.contains("--icon"));
+    assert!(stdout.contains("--color"));
+}
+
+#[test]
+fn test_views_update_help() {
+    let (code, stdout, _stderr) = run_cli(&["views", "update", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("--name"));
+    assert!(stdout.contains("--description"));
+    assert!(stdout.contains("--shared"));
+    assert!(stdout.contains("--filter-json"));
+}
+
+#[test]
+fn test_views_delete_help() {
+    let (code, stdout, _stderr) = run_cli(&["views", "delete", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("--force"));
+}
+
+#[test]
+fn test_webhooks_help() {
+    let (code, stdout, _stderr) = run_cli(&["webhooks", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("list"));
+    assert!(stdout.contains("get"));
+    assert!(stdout.contains("create"));
+    assert!(stdout.contains("update"));
+    assert!(stdout.contains("delete"));
+    assert!(stdout.contains("rotate-secret"));
+    assert!(stdout.contains("listen"));
+}
+
+#[test]
+fn test_webhooks_alias() {
+    let (code1, stdout1, _) = run_cli(&["wh", "--help"]);
+    let (code2, stdout2, _) = run_cli(&["webhooks", "--help"]);
+    assert_eq!(code1, 0);
+    assert_eq!(code2, 0);
+    assert_eq!(stdout1, stdout2);
+}
+
+#[test]
+fn test_webhooks_create_help() {
+    let (code, stdout, _stderr) = run_cli(&["webhooks", "create", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("--events"));
+    assert!(stdout.contains("--team"));
+    assert!(stdout.contains("--all-teams"));
+    assert!(stdout.contains("--label"));
+    assert!(stdout.contains("--secret"));
+}
+
+#[test]
+fn test_webhooks_update_help() {
+    let (code, stdout, _stderr) = run_cli(&["webhooks", "update", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("--url"));
+    assert!(stdout.contains("--events"));
+    assert!(stdout.contains("--enabled"));
+    assert!(stdout.contains("--disabled"));
+    assert!(stdout.contains("--label"));
+}
+
+#[test]
+fn test_webhooks_delete_help() {
+    let (code, stdout, _stderr) = run_cli(&["webhooks", "delete", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("--force"));
+}
+
+#[test]
+fn test_webhooks_listen_help() {
+    let (code, stdout, _stderr) = run_cli(&["webhooks", "listen", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("--port"));
+    assert!(stdout.contains("--events"));
+    assert!(stdout.contains("--team"));
+    assert!(stdout.contains("--secret"));
+    assert!(stdout.contains("--url"));
+    assert!(stdout.contains("--json"));
+    assert!(stdout.contains("ngrok") || stdout.contains("tunnel"));
+}
+
+#[test]
+fn test_webhooks_rotate_secret_help() {
+    let (code, stdout, _stderr) = run_cli(&["webhooks", "rotate-secret", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("<ID>") || stdout.contains("id") || stdout.contains("ID"));
+}
+
+#[test]
+fn test_issues_list_view_flag() {
+    let (code, stdout, _stderr) = run_cli(&["issues", "list", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("--view"), "issues list should have --view flag");
+}
+
+#[test]
+fn test_projects_list_view_flag() {
+    let (code, stdout, _stderr) = run_cli(&["projects", "list", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("--view"), "projects list should have --view flag");
+}
+
+#[test]
+fn test_auth_oauth_default_scopes_include_admin() {
+    let (code, stdout, _stderr) = run_cli(&["auth", "oauth", "--help"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("read,write,admin"),
+        "default scopes should now include admin"
+    );
 }
