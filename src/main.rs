@@ -600,6 +600,9 @@ Detects issue ID from branch names like:
         #[command(subcommand)]
         action: relations::RelationCommands,
     },
+    /// Show current authenticated user (alias for `users me`)
+    #[command(alias = "me")]
+    Whoami,
     /// Configure CLI settings - API keys and workspaces
     #[command(after_help = r#"EXAMPLES:
     linear config set-key YOUR_API_KEY      # Set API key
@@ -941,6 +944,7 @@ async fn run_command(
             }
         },
         Commands::Relations { action } => relations::handle(action, output).await?,
+        Commands::Whoami => users::handle(users::UserCommands::Me, output).await?,
         Commands::Auth { action } => auth::handle(action, output).await?,
         Commands::Doctor { check_api } => doctor::run(output, check_api).await?,
         Commands::Config { action } => match action {
