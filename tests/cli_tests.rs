@@ -200,6 +200,17 @@ fn test_cycles_help() {
     let (code, stdout, _stderr) = run_cli(&["cycles", "--help"]);
     assert_eq!(code, 0);
     assert!(stdout.contains("list"));
+    assert!(stdout.contains("get"));
+}
+
+#[test]
+fn test_cycles_get_help() {
+    let (code, stdout, _stderr) = run_cli(&["cycles", "get", "--help"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("Get cycle details"),
+        "cycles get should show help"
+    );
 }
 
 #[test]
@@ -826,6 +837,25 @@ fn test_help_shows_whoami() {
     assert!(
         stdout.contains("whoami"),
         "top-level help should list whoami command"
+    );
+}
+
+#[test]
+fn test_users_help() {
+    let (code, stdout, _stderr) = run_cli(&["users", "--help"]);
+    assert_eq!(code, 0);
+    assert!(stdout.contains("list"), "users should have list");
+    assert!(stdout.contains("me"), "users should have me");
+    assert!(stdout.contains("get"), "users should have get");
+}
+
+#[test]
+fn test_users_get_help() {
+    let (code, stdout, _stderr) = run_cli(&["users", "get", "--help"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("Get user details"),
+        "users get should show help"
     );
 }
 

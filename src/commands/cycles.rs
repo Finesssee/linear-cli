@@ -26,6 +26,11 @@ pub enum CycleCommands {
         #[arg(short, long)]
         all: bool,
     },
+    /// Get cycle details
+    Get {
+        /// Cycle ID
+        id: String,
+    },
     /// Show the current active cycle
     Current {
         /// Team ID or name
@@ -93,6 +98,7 @@ struct CycleRow {
 pub async fn handle(cmd: CycleCommands, output: &OutputOptions) -> Result<()> {
     match cmd {
         CycleCommands::List { team, all } => list_cycles(&team, all, output).await,
+        CycleCommands::Get { id } => get_cycle(&id, output).await,
         CycleCommands::Current { team } => current_cycle(&team, output).await,
         CycleCommands::Create {
             team,
@@ -249,6 +255,128 @@ async fn list_cycles(team: &str, include_all: bool, output: &OutputOptions) -> R
     let table = Table::new(rows).to_string();
     println!("{}", table);
     println!("\n{} cycles shown", rows_len);
+
+    Ok(())
+}
+
+async fn get_cycle(id: &str, output: &OutputOptions) -> Result<()> {
+    let client = LinearClient::new()?;
+
+    let query = r#"
+        query($id: String!) {
+            cycle(id: $id) {
+                id
+                name
+                number
+                description
+                startsAt
+                endsAt
+                completedAt
+                progress
+                scopeHistory
+                completedScopeHistory
+                team { name key }
+                issues(first: 50) {
+                    nodes {
+                        id
+                        identifier
+                        title
+                        state { name type }
+                        assignee { name }
+                        priority
+                    }
+                }
+            }
+        }
+    "#;
+
+    let result = client.query(query, Some(json!({ "id": id }))).await?;
+    let raw = &result["data"]["cycle"];
+
+    if raw.is_null() {
+        anyhow::bail!("Cycle not found: {}", id);
+    }
+
+    if output.is_json() || output.has_template() {
+        print_json(raw, output)?;
+        return Ok(());
+    }
+
+    let cycle: Cycle = serde_json::from_value(raw.clone())
+        .map_err(|e| anyhow::anyhow!("Failed to parse cycle: {}", e))?;
+
+    let progress = cycle.progress.unwrap_or(0.0);
+    let cycle_number = cycle.number.unwrap_or(0);
+    let default_name = format!("Cycle {}", cycle_number);
+    let cycle_name = cycle.name.as_deref().unwrap_or(&default_name);
+
+    println!("{}", cycle_name.bold());
+    println!("{}", "-".repeat(40));
+
+    if let Some(team_name) = raw["team"]["name"].as_str() {
+        let team_key = raw["team"]["key"].as_str().unwrap_or("");
+        println!("Team: {} ({})", team_name, team_key);
+    }
+
+    println!("Number: {}", cycle_number);
+
+    if let Some(desc) = &cycle.description {
+        if !desc.is_empty() {
+            println!("Description: {}", desc);
+        }
+    }
+
+    println!(
+        "Start: {}",
+        cycle.starts_at.as_deref().map(|s| &s[..10]).unwrap_or("-")
+    );
+    println!(
+        "End: {}",
+        cycle.ends_at.as_deref().map(|s| &s[..10]).unwrap_or("-")
+    );
+    println!("Progress: {:.0}%", progress * 100.0);
+
+    if cycle.completed_at.is_some() {
+        println!("Status: {}", "Completed".green());
+    } else {
+        println!("Status: {}", "Active".yellow());
+    }
+
+    println!("ID: {}", cycle.id);
+
+    // Show issues
+    let issues = raw["issues"]["nodes"].as_array();
+    if let Some(issues) = issues {
+        if !issues.is_empty() {
+            println!("\n{}", "Issues:".bold());
+            for issue_val in issues {
+                let identifier = issue_val["identifier"].as_str().unwrap_or("");
+                let title = truncate(
+                    issue_val["title"].as_str().unwrap_or(""),
+                    display_options().max_width(50),
+                );
+                let state_name = issue_val["state"]["name"].as_str().unwrap_or("");
+                let state_type = issue_val["state"]["type"].as_str().unwrap_or("");
+                let assignee = issue_val["assignee"]["name"].as_str().unwrap_or("-");
+
+                let state_colored = match state_type {
+                    "completed" => state_name.green().to_string(),
+                    "started" => state_name.yellow().to_string(),
+                    "canceled" | "cancelled" => state_name.red().to_string(),
+                    _ => state_name.dimmed().to_string(),
+                };
+
+                println!(
+                    "  {} {} [{}] ({})",
+                    identifier.cyan(),
+                    title,
+                    state_colored,
+                    assignee
+                );
+            }
+            println!("\n{} issues", issues.len());
+        }
+    }
 
     Ok(())
 }
