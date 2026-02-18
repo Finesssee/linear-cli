@@ -6,7 +6,8 @@ use std::io::{self, BufRead};
 use tabled::{Table, Tabled};
 
 use crate::api::{
-    resolve_label_id, resolve_state_id, resolve_team_id, resolve_user_id, LinearClient,
+    resolve_label_id, resolve_project_id, resolve_state_id, resolve_team_id, resolve_user_id,
+    LinearClient,
 };
 use crate::cache::CacheOptions;
 use crate::display_options;
@@ -143,7 +144,8 @@ pub enum IssueCommands {
     linear i update LIN-123 -p 1               # Set to urgent priority
     linear i update LIN-123 --due tomorrow     # Due tomorrow
     linear i update LIN-123 -a me              # Assign to yourself
-    linear i update LIN-123 -l bug -l urgent   # Add labels"#)]
+    linear i update LIN-123 -l bug -l urgent   # Add labels
+    linear i update LIN-123 --project MyProj   # Move to project"#)]
     Update {
         /// Issue ID
         id: String,
@@ -174,6 +176,9 @@ pub enum IssueCommands {
         /// Estimate in points (e.g., 1, 2, 3, 5, 8, or 0 to clear)
         #[arg(short, long)]
         estimate: Option<f64>,
+        /// Project name or ID (or "none" to remove from project)
+        #[arg(long)]
+        project: Option<String>,
         /// Preview without updating (dry run)
         #[arg(long)]
         dry_run: bool,
@@ -421,6 +426,7 @@ pub async fn handle(
             labels,
             due,
             estimate,
+            project,
             dry_run,
         } => {
             let dry_run = dry_run || output.dry_run || agent_opts.dry_run;
@@ -450,6 +456,7 @@ pub async fn handle(
                 labels,
                 due,
                 estimate,
+                project,
                 dry_run,
                 output,
                 agent_opts,
@@ -1415,6 +1422,7 @@ async fn update_issue(
     labels: Vec<String>,
     due: Option<String>,
     estimate: Option<f64>,
+    project: Option<String>,
     dry_run: bool,
     output: &OutputOptions,
     agent_opts: AgentOptions,
@@ -1494,6 +1502,16 @@ async fn update_issue(
             input["estimate"] = json!(null);
         } else {
             input["estimate"] = json!(e);
+        }
+    }
+    if let Some(ref p) = project {
+        if p.eq_ignore_ascii_case("none") || p.eq_ignore_ascii_case("clear") {
+            input["projectId"] = json!(null);
+        } else if dry_run {
+            input["projectId"] = json!(p);
+        } else {
+            let project_id = resolve_project_id(&client, p, &output.cache).await?;
+            input["projectId"] = json!(project_id);
         }
     }
 
