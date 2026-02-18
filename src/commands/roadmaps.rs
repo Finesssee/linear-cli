@@ -84,7 +84,7 @@ async fn list_roadmaps(output: &OutputOptions) -> Result<()> {
 
     let query = r#"
         query {
-            roadmaps(first: 100) {
+            roadmaps(first: 250) {
                 nodes {
                     id
                     name

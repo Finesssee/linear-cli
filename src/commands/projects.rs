@@ -763,7 +763,7 @@ async fn list_project_members(id: &str, output: &OutputOptions) -> Result<()> {
         query($id: String!) {
             project(id: $id) {
                 name
-                members {
+                members(first: 100) {
                     nodes {
                         id
                         name

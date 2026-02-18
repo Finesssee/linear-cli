@@ -35,7 +35,7 @@ async fn list_favorites(output: &OutputOptions) -> Result<()> {
 
     let query = r#"
         query {
-            favorites(first: 100) {
+            favorites(first: 250) {
                 nodes {
                     id
                     type
@@ -79,13 +79,10 @@ async fn add_favorite(id: &str, output: &OutputOptions) -> Result<()> {
 
     let issue_result = client
         .query(issue_query, Some(json!({ "identifier": id })))
-        .await;
+        .await?;
 
     // Check if issue exists (query succeeded AND data.issue is not null)
-    let is_issue = issue_result
-        .as_ref()
-        .map(|r| !r["data"]["issue"].is_null())
-        .unwrap_or(false);
+    let is_issue = !issue_result["data"]["issue"].is_null();
 
     let mutation = if is_issue {
         r#"
@@ -134,7 +131,7 @@ async fn remove_favorite(id: &str, output: &OutputOptions) -> Result<()> {
     // First find the favorite by issue/project id
     let query = r#"
         query {
-            favorites(first: 100) {
+            favorites(first: 250) {
                 nodes {
                     id
                     issue { identifier }

@@ -334,7 +334,7 @@ async fn list_members(team: &str, output: &OutputOptions) -> Result<()> {
         query($id: String!) {
             team(id: $id) {
                 name
-                members {
+                members(first: 100) {
                     nodes {
                         id
                         name

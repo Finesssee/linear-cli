@@ -78,7 +78,7 @@ async fn list_triage(team: Option<String>, output: &OutputOptions) -> Result<()>
     // Filter for triage: no assignee, state is "triage" type or backlog
     let mut filter = json!({
         "assignee": { "null": true },
-        "state": { "type": { "eq": "triage" } }
+        "state": { "type": { "in": ["triage", "backlog"] } }
     });
 
     if let Some(ref t) = team {
@@ -126,40 +126,91 @@ async fn list_triage(team: Option<String>, output: &OutputOptions) -> Result<()>
 async fn claim_issue(id: &str, output: &OutputOptions) -> Result<()> {
     let client = LinearClient::new()?;
 
-    // Get current user
+    // Get current user and issue details (including team states to find backlog)
     let me_query = r#"query { viewer { id } }"#;
     let me_result = client.query(me_query, None).await?;
     let my_id = me_result["data"]["viewer"]["id"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("Could not get current user"))?;
 
+    // Fetch the issue's team states to find a backlog state
+    let issue_query = r#"
+        query($id: String!) {
+            issue(id: $id) {
+                team {
+                    states {
+                        nodes {
+                            id
+                            type
+                        }
+                    }
+                }
+            }
+        }
+    "#;
+
+    let issue_result = client
+        .query(issue_query, Some(json!({ "id": id })))
+        .await?;
+    let issue_data = &issue_result["data"]["issue"];
+
+    if issue_data.is_null() {
+        anyhow::bail!("Issue not found: {}", id);
+    }
+
+    // Find a backlog state, fall back to unstarted
+    let empty = vec![];
+    let states = issue_data["team"]["states"]["nodes"]
+        .as_array()
+        .unwrap_or(&empty);
+
+    let backlog_state = states
+        .iter()
+        .find(|s| s["type"].as_str() == Some("backlog"))
+        .or_else(|| {
+            states
+                .iter()
+                .find(|s| s["type"].as_str() == Some("unstarted"))
+        });
+
+    // Build mutation input with assignee and optional state change
+    let mut input = json!({ "assigneeId": my_id });
+    if let Some(state) = backlog_state {
+        if let Some(state_id) = state["id"].as_str() {
+            input["stateId"] = json!(state_id);
+        }
+    }
+
     // Update issue
     let mutation = r#"
-        mutation($id: String!, $assigneeId: String!) {
-            issueUpdate(id: $id, input: { assigneeId: $assigneeId }) {
+        mutation($id: String!, $input: IssueUpdateInput!) {
+            issueUpdate(id: $id, input: $input) {
                 success
                 issue {
                     id
                     identifier
                     title
                     assignee { name }
+                    state { name }
                 }
             }
         }
     "#;
 
     let result = client
-        .mutate(mutation, Some(json!({ "id": id, "assigneeId": my_id })))
+        .mutate(mutation, Some(json!({ "id": id, "input": input })))
         .await?;
 
     if output.is_json() {
         print_json(&result["data"]["issueUpdate"], output)?;
     } else {
         let issue = &result["data"]["issueUpdate"]["issue"];
+        let state_name = issue["state"]["name"].as_str().unwrap_or("backlog");
         println!(
-            "Claimed {} - {}",
+            "Claimed {} - {} (moved to {})",
             issue["identifier"].as_str().unwrap_or(id),
-            issue["title"].as_str().unwrap_or("")
+            issue["title"].as_str().unwrap_or(""),
+            state_name
         );
     }
 

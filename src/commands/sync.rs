@@ -179,7 +179,7 @@ async fn fetch_linear_projects(
     // Fetch from API
     let query = r#"
         query {
-            projects(first: 250) {
+            projects(first: 500) {
                 nodes {
                     id
                     name
