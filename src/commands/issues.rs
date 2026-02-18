@@ -521,11 +521,7 @@ async fn list_issues(
         None
     };
 
-    // Determine if we need filter-based query (--view or --since or --label)
-    let use_filter_query = filter_data.is_some() || since_date.is_some() || label.is_some();
-
-    let query = if use_filter_query {
-        r#"
+    let query = r#"
         query($filter: IssueFilter, $includeArchived: Boolean, $first: Int, $after: String, $last: Int, $before: String) {
             issues(
                 first: $first,
@@ -551,115 +547,38 @@ async fn list_issues(
                 }
             }
         }
-    "#
-    } else {
-        r#"
-        query($teamId: ID, $state: String, $assignee: String, $project: String, $includeArchived: Boolean, $first: Int, $after: String, $last: Int, $before: String) {
-            issues(
-                first: $first,
-                after: $after,
-                last: $last,
-                before: $before,
-                includeArchived: $includeArchived,
-                filter: {
-                    team: { id: { eq: $teamId } },
-                    state: { name: { eqIgnoreCase: $state } },
-                    assignee: { name: { eqIgnoreCase: $assignee } },
-                    project: { name: { eqIgnoreCase: $project } }
-                }
-            ) {
-                nodes {
-                    id
-                    identifier
-                    title
-                    priority
-                    state { name }
-                    assignee { name }
-                }
-                pageInfo {
-                    hasNextPage
-                    endCursor
-                    hasPreviousPage
-                    startCursor
-                }
-            }
-        }
-    "#
-    };
+    "#;
 
     let mut variables = Map::new();
     variables.insert("includeArchived".to_string(), json!(include_archived));
 
-    if let Some(ref fd) = filter_data {
-        // Start with view filter, then merge --since and other CLI filters
-        let mut filter = fd.clone();
-        if let Some(ref since_ts) = since_date {
-            if let Some(obj) = filter.as_object_mut() {
-                obj.insert("createdAt".to_string(), json!({ "gte": since_ts }));
-            }
-        }
-        // Merge CLI filters on top of view filter
-        if let Some(ref t) = team_id {
-            if let Some(obj) = filter.as_object_mut() {
-                obj.insert("team".to_string(), json!({ "id": { "eq": t } }));
-            }
-        }
-        if let Some(s) = state {
-            if let Some(obj) = filter.as_object_mut() {
-                obj.insert("state".to_string(), json!({ "name": { "eqIgnoreCase": s } }));
-            }
-        }
-        if let Some(a) = assignee {
-            if let Some(obj) = filter.as_object_mut() {
-                obj.insert("assignee".to_string(), json!({ "name": { "eqIgnoreCase": a } }));
-            }
-        }
-        if let Some(p) = project {
-            if let Some(obj) = filter.as_object_mut() {
-                obj.insert("project".to_string(), json!({ "name": { "eqIgnoreCase": p } }));
-            }
-        }
-        if let Some(ref l) = label {
-            if let Some(obj) = filter.as_object_mut() {
-                obj.insert("labels".to_string(), json!({ "name": { "eqIgnoreCase": l } }));
-            }
-        }
+    // Build filter dynamically — start from view filter if present, otherwise empty
+    let mut filter = match filter_data {
+        Some(fd) => fd,
+        None => json!({}),
+    };
+
+    if let Some(ref since_ts) = since_date {
+        filter["createdAt"] = json!({ "gte": since_ts });
+    }
+    if let Some(ref t) = team_id {
+        filter["team"] = json!({ "id": { "eq": t } });
+    }
+    if let Some(s) = state {
+        filter["state"] = json!({ "name": { "eqIgnoreCase": s } });
+    }
+    if let Some(a) = assignee {
+        filter["assignee"] = json!({ "name": { "eqIgnoreCase": a } });
+    }
+    if let Some(p) = project {
+        filter["project"] = json!({ "name": { "eqIgnoreCase": p } });
+    }
+    if let Some(ref l) = label {
+        filter["labels"] = json!({ "name": { "eqIgnoreCase": l } });
+    }
+    // Only include filter if non-empty
+    if filter.as_object().map(|o| !o.is_empty()).unwrap_or(false) {
         variables.insert("filter".to_string(), filter);
-    } else if since_date.is_some() || label.is_some() {
-        // Build filter from --since and CLI filters (no view)
-        let mut filter = json!({});
-        if let Some(ref since_ts) = since_date {
-            filter["createdAt"] = json!({ "gte": since_ts });
-        }
-        if let Some(ref t) = team_id {
-            filter["team"] = json!({ "id": { "eq": t } });
-        }
-        if let Some(s) = state {
-            filter["state"] = json!({ "name": { "eqIgnoreCase": s } });
-        }
-        if let Some(a) = assignee {
-            filter["assignee"] = json!({ "name": { "eqIgnoreCase": a } });
-        }
-        if let Some(p) = project {
-            filter["project"] = json!({ "name": { "eqIgnoreCase": p } });
-        }
-        if let Some(ref l) = label {
-            filter["labels"] = json!({ "name": { "eqIgnoreCase": l } });
-        }
-        variables.insert("filter".to_string(), filter);
-    } else {
-        if let Some(ref t) = team_id {
-            variables.insert("teamId".to_string(), json!(t));
-        }
-        if let Some(s) = state {
-            variables.insert("state".to_string(), json!(s));
-        }
-        if let Some(a) = assignee {
-            variables.insert("assignee".to_string(), json!(a));
-        }
-        if let Some(p) = project {
-            variables.insert("project".to_string(), json!(p));
-        }
     }
 
     let pagination = output.pagination.with_default_limit(50);
