@@ -15,7 +15,7 @@ npx skills add Finesssee/linear-cli --skill linear-list
 npx skills add Finesssee/linear-cli -g
 ```
 
-## Available Skills (27 total)
+## Available Skills (38 total)
 
 ### Issues
 | Skill | Description |
@@ -24,6 +24,8 @@ npx skills add Finesssee/linear-cli -g
 | `linear-create` | Create issues |
 | `linear-update` | Update issues (status, priority, assignee, labels) |
 | `linear-workflow` | Start/stop work, get current issue context |
+| `linear-comments` | List, create, update, delete comments |
+| `linear-done` | Mark current branch's issue as Done |
 
 ### Git
 | Skill | Description |
@@ -34,26 +36,33 @@ npx skills add Finesssee/linear-cli -g
 ### Planning
 | Skill | Description |
 |-------|-------------|
-| `linear-projects` | Manage projects |
+| `linear-projects` | Full project CRUD (create, update, archive, labels, members) |
+| `linear-project-updates` | Project status updates with health tracking |
+| `linear-milestones` | Project milestones CRUD |
 | `linear-roadmaps` | View roadmaps |
 | `linear-initiatives` | High-level tracking |
-| `linear-cycles` | Sprint cycles |
+| `linear-cycles` | Sprint cycles (list, create, update, delete, complete) |
+| `linear-sprint` | Sprint planning (status, progress, burndown, velocity, carry-over) |
 
 ### Organization
 | Skill | Description |
 |-------|-------------|
-| `linear-teams` | Teams and users |
+| `linear-teams` | Teams CRUD and user management |
 | `linear-labels` | Label management |
+| `linear-statuses` | Workflow state management |
 | `linear-relations` | Issue relationships (blocks, parent/child) |
-| `linear-templates` | Issue templates |
+| `linear-templates` | Local + API templates |
+| `linear-views` | Custom views CRUD |
 
 ### Operations
 | Skill | Description |
 |-------|-------------|
 | `linear-bulk` | Bulk operations |
-| `linear-export` | Export to CSV/Markdown |
+| `linear-import` | Import from CSV/JSON |
+| `linear-export` | Export to CSV/Markdown/JSON |
 | `linear-triage` | Triage inbox |
-| `linear-favorites` | Quick access |
+| `linear-favorites` | Quick access favorites |
+| `linear-attachments` | Attachment and URL management |
 
 ### Tracking
 | Skill | Description |
@@ -62,15 +71,17 @@ npx skills add Finesssee/linear-cli -g
 | `linear-history` | Issue activity logs |
 | `linear-time` | Time tracking |
 | `linear-watch` | Watch for updates |
+| `linear-webhooks` | Webhooks CRUD + local event listener |
 
-### Other
+### Advanced
 | Skill | Description |
 |-------|-------------|
+| `linear-api` | Raw GraphQL queries and mutations |
 | `linear-search` | Search issues and projects |
 | `linear-notifications` | Manage notifications |
 | `linear-documents` | Documentation |
 | `linear-uploads` | Download attachments |
-| `linear-config` | Auth, API keys, workspaces, diagnostics |
+| `linear-config` | Auth (API key + OAuth), workspaces, setup, diagnostics |
 
 ## Supported Agents
 

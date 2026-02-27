@@ -1,29 +1,48 @@
 ---
 name: linear-templates
-description: Manage Linear issue templates. Use when creating or using templates.
+description: Manage issue templates - local templates and Linear API templates. Use when creating or using templates.
 allowed-tools: Bash
 ---
 
-# Templates
+# Local Templates
 
 ```bash
-# List templates
+# List local templates
 linear-cli tpl list
-linear-cli tpl list --output json
 
 # Show template
 linear-cli tpl show bug
-linear-cli tpl show TEMPLATE_ID --output json
 
-# Create template
+# Create local template
 linear-cli tpl create bug
 
-# Delete template
-linear-cli tpl delete TEMPLATE_ID
+# Delete local template
+linear-cli tpl delete bug
+```
+
+# API Templates (Linear server-side)
+
+```bash
+# List remote templates
+linear-cli tpl remote-list
+linear-cli tpl remote-list --output json
+
+# Get remote template
+linear-cli tpl remote-get TEMPLATE_ID
+
+# Create remote template
+linear-cli tpl remote-create "Bug Report" -t ENG
+
+# Update remote template
+linear-cli tpl remote-update TEMPLATE_ID --name "Updated"
+
+# Delete remote template
+linear-cli tpl remote-delete TEMPLATE_ID --force
 ```
 
 ## Flags
 
 | Flag | Purpose |
 |------|---------|
+| `-t TEAM` | Team for remote templates |
 | `--output json` | JSON output |
