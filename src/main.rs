@@ -22,9 +22,10 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, Shell};
 use commands::{
-    auth, bulk, comments, cycles, doctor, documents, export, favorites, git, history, initiatives,
-    interactive, issues, labels, metrics, notifications, projects, relations, roadmaps, search,
-    statuses, sync, teams, templates, time, triage, uploads, users, views, watch, webhooks,
+    attachments, auth, bulk, comments, cycles, doctor, documents, export, favorites, git, history,
+    initiatives, interactive, issues, labels, metrics, notifications, project_updates, projects,
+    relations, roadmaps, search, sprint, statuses, sync, teams, templates, time, triage, uploads,
+    users, views, watch, webhooks,
 };
 use error::CliError;
 use output::print_json_owned;
@@ -278,6 +279,18 @@ enum Commands {
     Common,
     /// Show agent-focused capabilities and examples
     Agent,
+    /// Manage issue attachments - list, create, update, delete, link URLs
+    #[command(alias = "att")]
+    #[command(after_help = r#"EXAMPLES:
+    linear attachments list SCW-123          # List attachments on issue
+    linear att get ATTACHMENT_ID             # View attachment details
+    linear att create SCW-123 -T "Doc" -u https://example.com
+    linear att link-url SCW-123 https://example.com
+    linear att delete ATTACHMENT_ID --force  # Delete attachment"#)]
+    Attachments {
+        #[command(subcommand)]
+        action: attachments::AttachmentCommands,
+    },
     /// Authenticate and manage API keys
     #[command(after_help = r#"EXAMPLES:
     linear auth login                        # Store API key
@@ -322,6 +335,17 @@ enum Commands {
     Projects {
         #[command(subcommand)]
         action: projects::ProjectCommands,
+    },
+    /// Manage project status updates - list, create, update, archive
+    #[command(alias = "pu")]
+    #[command(after_help = r#"EXAMPLES:
+    linear project-updates list "My Project"   # List updates
+    linear pu get UPDATE_ID                    # View update details
+    linear pu create "My Project" -b "On track" # Create update
+    linear pu archive UPDATE_ID                # Archive update"#)]
+    ProjectUpdates {
+        #[command(subcommand)]
+        action: project_updates::ProjectUpdateCommands,
     },
     /// Manage issues - list, create, update, assign, track issues
     #[command(alias = "i")]
@@ -671,6 +695,29 @@ Walks you through:
   2. Choosing a default team
   3. Selecting output format (table or json)"#)]
     Setup,
+    /// Sprint planning - manage cycle-based sprints
+    #[command(alias = "sp")]
+    #[command(after_help = r#"EXAMPLES:
+    linear sprint status -t ENG            # Current sprint status
+    linear sp progress -t ENG              # Sprint progress bar
+    linear sp plan -t ENG                  # Next sprint's planned issues
+    linear sp carry-over -t ENG --force    # Move incomplete issues to next cycle"#)]
+    Sprint {
+        #[command(subcommand)]
+        action: sprint::SprintCommands,
+    },
+    /// Generate shell completions
+    #[command(alias = "comp")]
+    #[command(after_help = r#"EXAMPLES:
+    linear completions bash > ~/.bash_completion.d/linear
+    linear completions zsh > ~/.zfunc/_linear
+    linear completions fish > ~/.config/fish/completions/linear.fish
+    linear comp powershell > linear.ps1"#)]
+    Completions {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: Shell,
+    },
     /// Configure CLI settings - API keys and workspaces
     #[command(after_help = r#"EXAMPLES:
     linear config set-key YOUR_API_KEY      # Set API key
@@ -990,7 +1037,9 @@ async fn run_command(
             println!("  Use --schema to print the current schema version.");
         }
         Commands::Projects { action } => projects::handle(action, output).await?,
+        Commands::ProjectUpdates { action } => project_updates::handle(action, output).await?,
         Commands::Issues { action } => issues::handle(action, output, agent_opts).await?,
+        Commands::Attachments { action } => attachments::handle(action, output).await?,
         Commands::Labels { action } => labels::handle(action, output).await?,
         Commands::Teams { action } => teams::handle(action, output).await?,
         Commands::Users { action } => users::handle(action, output).await?,
@@ -1038,6 +1087,11 @@ async fn run_command(
         Commands::Whoami => users::handle(users::UserCommands::Me, output).await?,
         Commands::Done { status } => handle_done(&status, output, agent_opts, retry).await?,
         Commands::Setup => handle_setup(output).await?,
+        Commands::Sprint { action } => sprint::handle(action, output).await?,
+        Commands::Completions { shell } => {
+            let mut cmd = Cli::command();
+            generate(shell, &mut cmd, "linear-cli", &mut std::io::stdout());
+        }
         Commands::Auth { action } => auth::handle(action, output).await?,
         Commands::Api { action } => commands::api::handle(action, output).await?,
         Commands::Doctor { check_api, fix } => doctor::run(output, check_api, fix).await?,

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::Subcommand;
+use clap::{Subcommand, ValueHint};
 use csv::Writer;
 use serde_json::json;
 use std::io::Write;
@@ -16,7 +16,7 @@ pub enum ExportCommands {
         #[arg(short, long)]
         team: Option<String>,
         /// Output file (default: stdout)
-        #[arg(short, long)]
+        #[arg(short, long, value_hint = ValueHint::FilePath)]
         file: Option<String>,
         /// Include completed issues
         #[arg(long)]
@@ -34,7 +34,7 @@ pub enum ExportCommands {
         #[arg(short, long)]
         team: Option<String>,
         /// Output file (default: stdout)
-        #[arg(short, long)]
+        #[arg(short, long, value_hint = ValueHint::FilePath)]
         file: Option<String>,
         /// Limit number of issues (default: 250, ignored with --all)
         #[arg(long)]

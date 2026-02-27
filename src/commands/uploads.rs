@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use clap::Subcommand;
+use clap::{Subcommand, ValueHint};
 use std::io::{self, Write};
 
 use crate::api::LinearClient;
@@ -13,7 +13,7 @@ pub enum UploadCommands {
         url: String,
 
         /// Output file path (if not specified, outputs to stdout)
-        #[arg(short = 'f', long = "file")]
+        #[arg(short = 'f', long = "file", value_hint = ValueHint::FilePath)]
         file: Option<String>,
     },
 }
