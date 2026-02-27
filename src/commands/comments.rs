@@ -34,6 +34,22 @@ pub enum CommentCommands {
         #[arg(short, long)]
         parent_id: Option<String>,
     },
+    /// Update an existing comment
+    Update {
+        /// Comment ID
+        id: String,
+        /// New comment body (Markdown supported)
+        #[arg(short, long)]
+        body: String,
+    },
+    /// Delete a comment
+    Delete {
+        /// Comment ID
+        id: String,
+        /// Skip confirmation
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Tabled)]
@@ -56,6 +72,8 @@ pub async fn handle(cmd: CommentCommands, output: &OutputOptions) -> Result<()> 
             body,
             parent_id,
         } => create_comment(&issue_id, &body, parent_id).await,
+        CommentCommands::Update { id, body } => update_comment(&id, &body, output).await,
+        CommentCommands::Delete { id, force } => delete_comment(&id, force).await,
     }
 }
 
@@ -299,6 +317,77 @@ async fn create_comment(issue_id: &str, body: &str, parent_id: Option<String>) -
         }
     } else {
         anyhow::bail!("Failed to create comment");
+    }
+
+    Ok(())
+}
+
+async fn update_comment(id: &str, body: &str, output: &OutputOptions) -> Result<()> {
+    let client = LinearClient::new()?;
+
+    let input = json!({ "body": body });
+
+    let mutation = r#"
+        mutation($id: String!, $input: CommentUpdateInput!) {
+            commentUpdate(id: $id, input: $input) {
+                success
+                comment {
+                    id
+                    body
+                    updatedAt
+                    user { name }
+                }
+            }
+        }
+    "#;
+
+    let result = client
+        .mutate(mutation, Some(json!({ "id": id, "input": input })))
+        .await?;
+
+    if result["data"]["commentUpdate"]["success"].as_bool() == Some(true) {
+        let comment = &result["data"]["commentUpdate"]["comment"];
+
+        if output.is_json() || output.has_template() {
+            print_json(comment, output)?;
+            return Ok(());
+        }
+
+        println!("{} Comment updated", "+".green());
+        println!("  ID: {}", comment["id"].as_str().unwrap_or(""));
+    } else {
+        anyhow::bail!("Failed to update comment");
+    }
+
+    Ok(())
+}
+
+async fn delete_comment(id: &str, force: bool) -> Result<()> {
+    if !force && !crate::is_yes() {
+        anyhow::bail!(
+            "Delete requires --force flag. Use: linear comments delete {} --force",
+            id
+        );
+    }
+
+    let client = LinearClient::new()?;
+
+    let mutation = r#"
+        mutation($id: String!) {
+            commentDelete(id: $id) {
+                success
+            }
+        }
+    "#;
+
+    let result = client
+        .mutate(mutation, Some(json!({ "id": id })))
+        .await?;
+
+    if result["data"]["commentDelete"]["success"].as_bool() == Some(true) {
+        println!("{} Comment deleted", "+".green());
+    } else {
+        anyhow::bail!("Failed to delete comment");
     }
 
     Ok(())

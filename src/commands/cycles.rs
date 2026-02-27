@@ -75,6 +75,19 @@ pub enum CycleCommands {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Delete a cycle
+    Delete {
+        /// Cycle ID
+        id: String,
+        /// Skip confirmation
+        #[arg(long)]
+        force: bool,
+    },
+    /// Mark a cycle as completed
+    Complete {
+        /// Cycle ID
+        id: String,
+    },
 }
 
 #[derive(Tabled)]
@@ -118,6 +131,8 @@ pub async fn handle(cmd: CycleCommands, output: &OutputOptions) -> Result<()> {
             let dry_run = dry_run || output.dry_run;
             update_cycle(&id, name, description, starts_at, ends_at, dry_run, output).await
         }
+        CycleCommands::Delete { id, force } => delete_cycle(&id, force).await,
+        CycleCommands::Complete { id } => complete_cycle(&id, output).await,
     }
 }
 
@@ -627,6 +642,77 @@ async fn update_cycle(
         println!("{} Cycle updated", "+".green());
     } else {
         anyhow::bail!("Failed to update cycle");
+    }
+
+    Ok(())
+}
+
+async fn delete_cycle(id: &str, force: bool) -> Result<()> {
+    if !force && !crate::is_yes() {
+        anyhow::bail!("Delete requires --force flag. Use: linear cycles delete {} --force", id);
+    }
+
+    let client = LinearClient::new()?;
+
+    let mutation = r#"
+        mutation($id: String!) {
+            cycleDelete(id: $id) {
+                success
+            }
+        }
+    "#;
+
+    let result = client
+        .mutate(mutation, Some(json!({ "id": id })))
+        .await?;
+
+    let success = result["data"]["cycleDelete"]["success"]
+        .as_bool()
+        .unwrap_or(false);
+
+    if success {
+        println!("Cycle {} deleted.", id);
+    } else {
+        anyhow::bail!("Failed to delete cycle {}", id);
+    }
+
+    Ok(())
+}
+
+async fn complete_cycle(id: &str, output: &OutputOptions) -> Result<()> {
+    let client = LinearClient::new()?;
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let input = json!({ "completedAt": now });
+
+    let mutation = r#"
+        mutation($id: String!, $input: CycleUpdateInput!) {
+            cycleUpdate(id: $id, input: $input) {
+                success
+                cycle { id name number completedAt }
+            }
+        }
+    "#;
+
+    let result = client
+        .mutate(mutation, Some(json!({ "id": id, "input": input })))
+        .await?;
+
+    if result["data"]["cycleUpdate"]["success"].as_bool() == Some(true) {
+        let cycle = &result["data"]["cycleUpdate"]["cycle"];
+
+        if output.is_json() || output.has_template() {
+            print_json(cycle, output)?;
+            return Ok(());
+        }
+
+        let display_name = cycle["name"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .unwrap_or("cycle");
+        println!("{} Cycle '{}' marked as completed", "+".green(), display_name);
+    } else {
+        anyhow::bail!("Failed to complete cycle");
     }
 
     Ok(())

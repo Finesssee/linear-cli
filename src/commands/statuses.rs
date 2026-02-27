@@ -4,12 +4,12 @@ use colored::Colorize;
 use serde_json::{json, Value};
 use tabled::{Table, Tabled};
 
-use crate::api::{resolve_team_id, LinearClient};
+use crate::api::{resolve_state_id, resolve_team_id, LinearClient};
 use crate::cache::{Cache, CacheType};
 use crate::display_options;
 use crate::input::read_ids_from_stdin;
 use crate::output::{
-    ensure_non_empty, filter_values, print_json_owned, sort_values, OutputOptions,
+    ensure_non_empty, filter_values, print_json, print_json_owned, sort_values, OutputOptions,
 };
 use crate::pagination::paginate_nodes;
 use crate::text::truncate;
@@ -30,6 +30,26 @@ pub enum StatusCommands {
         /// Team name or ID
         #[arg(short, long)]
         team: String,
+    },
+    /// Update a workflow state
+    Update {
+        /// Status name or ID
+        id: String,
+        /// Team name or ID
+        #[arg(short, long)]
+        team: String,
+        /// New name
+        #[arg(short, long)]
+        name: Option<String>,
+        /// New color (hex)
+        #[arg(short, long)]
+        color: Option<String>,
+        /// New description
+        #[arg(short, long)]
+        description: Option<String>,
+        /// Preview without updating (dry run)
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -56,6 +76,17 @@ pub async fn handle(cmd: StatusCommands, output: &OutputOptions) -> Result<()> {
                 anyhow::bail!("No status IDs provided. Provide IDs or pipe them via stdin.");
             }
             get_statuses(&final_ids, &team, output).await
+        }
+        StatusCommands::Update {
+            id,
+            team,
+            name,
+            color,
+            description,
+            dry_run,
+        } => {
+            let dry_run = dry_run || output.dry_run;
+            update_status(&id, &team, name, color, description, dry_run, output).await
         }
     }
 }
@@ -292,6 +323,83 @@ async fn get_statuses(ids: &[String], team: &str, output: &OutputOptions) -> Res
             }
         }
         println!("ID: {}", status["id"].as_str().unwrap_or("-"));
+    }
+
+    Ok(())
+}
+
+async fn update_status(
+    id: &str,
+    team: &str,
+    name: Option<String>,
+    color: Option<String>,
+    description: Option<String>,
+    dry_run: bool,
+    output: &OutputOptions,
+) -> Result<()> {
+    let client = LinearClient::new()?;
+    let team_id = resolve_team_id(&client, team, &output.cache).await?;
+    let state_id = resolve_state_id(&client, &team_id, id).await?;
+
+    let mut input = json!({});
+    if let Some(n) = name {
+        input["name"] = json!(n);
+    }
+    if let Some(c) = color {
+        input["color"] = json!(c);
+    }
+    if let Some(d) = description {
+        input["description"] = json!(d);
+    }
+
+    if input.as_object().map(|o| o.is_empty()).unwrap_or(true) {
+        println!("No updates specified.");
+        return Ok(());
+    }
+
+    if dry_run {
+        if output.is_json() || output.has_template() {
+            print_json_owned(
+                json!({
+                    "dry_run": true,
+                    "would_update": { "id": state_id, "input": input }
+                }),
+                output,
+            )?;
+        } else {
+            println!("{}", "[DRY RUN] Would update status:".yellow().bold());
+            println!("  ID: {}", state_id);
+        }
+        return Ok(());
+    }
+
+    let mutation = r#"
+        mutation($id: String!, $input: WorkflowStateUpdateInput!) {
+            workflowStateUpdate(id: $id, input: $input) {
+                success
+                workflowState { id name color description }
+            }
+        }
+    "#;
+
+    let result = client
+        .mutate(mutation, Some(json!({ "id": state_id, "input": input })))
+        .await?;
+
+    if result["data"]["workflowStateUpdate"]["success"].as_bool() == Some(true) {
+        let state = &result["data"]["workflowStateUpdate"]["workflowState"];
+
+        if output.is_json() || output.has_template() {
+            print_json(state, output)?;
+            return Ok(());
+        }
+
+        println!("{} Status updated", "+".green());
+
+        // Invalidate statuses cache after successful update
+        let _ = Cache::new().and_then(|c| c.clear_type(CacheType::Statuses));
+    } else {
+        anyhow::bail!("Failed to update status");
     }
 
     Ok(())

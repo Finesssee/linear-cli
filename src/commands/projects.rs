@@ -110,6 +110,27 @@ pub enum ProjectCommands {
         #[arg(required = true)]
         labels: Vec<String>,
     },
+    /// Remove labels from a project
+    #[command(after_help = r#"EXAMPLES:
+    linear projects remove-labels ID LABEL_ID  # Remove one label
+    linear p remove-labels ID L1 L2 L3         # Remove multiple labels"#)]
+    RemoveLabels {
+        /// Project ID
+        id: String,
+        /// Label IDs to remove
+        #[arg(required = true)]
+        labels: Vec<String>,
+    },
+    /// Replace all labels on a project
+    #[command(after_help = r#"EXAMPLES:
+    linear projects set-labels ID L1 L2        # Set exact labels
+    linear p set-labels ID                     # Clear all labels"#)]
+    SetLabels {
+        /// Project ID
+        id: String,
+        /// Label IDs to set (replaces all existing labels)
+        labels: Vec<String>,
+    },
     /// List project members
     Members {
         /// Project ID or name
@@ -159,6 +180,10 @@ pub async fn handle(cmd: ProjectCommands, output: &OutputOptions) -> Result<()> 
         }
         ProjectCommands::Delete { id, force } => delete_project(&id, force).await,
         ProjectCommands::AddLabels { id, labels } => add_labels(&id, labels, output).await,
+        ProjectCommands::RemoveLabels { id, labels } => {
+            remove_labels(&id, labels, output).await
+        }
+        ProjectCommands::SetLabels { id, labels } => set_labels(&id, labels, output).await,
         ProjectCommands::Members { id } => list_project_members(&id, output).await,
     }
 }
@@ -681,7 +706,7 @@ async fn update_project(
 }
 
 async fn delete_project(id: &str, force: bool) -> Result<()> {
-    if !force {
+    if !force && !crate::is_yes() {
         println!("Are you sure you want to delete project {}?", id);
         println!("This action cannot be undone. Use --force to skip this prompt.");
         return Ok(());
@@ -750,6 +775,135 @@ async fn add_labels(id: &str, label_ids: Vec<String>, output: &OutputOptions) ->
         println!("{} Labels updated: {}", "+".green(), labels.join(", "));
     } else {
         anyhow::bail!("Failed to add labels");
+    }
+
+    Ok(())
+}
+
+async fn remove_labels(
+    id: &str,
+    labels_to_remove: Vec<String>,
+    output: &OutputOptions,
+) -> Result<()> {
+    let client = LinearClient::new()?;
+
+    // Fetch current project labels
+    let query = r#"
+        query($id: String!) {
+            project(id: $id) {
+                labels { nodes { id name } }
+            }
+        }
+    "#;
+
+    let result = client.query(query, Some(json!({ "id": id }))).await?;
+    let project = &result["data"]["project"];
+
+    if project.is_null() {
+        anyhow::bail!("Project not found: {}", id);
+    }
+
+    let current_labels = project["labels"]["nodes"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+
+    // Filter out the labels to remove
+    let remaining_ids: Vec<String> = current_labels
+        .iter()
+        .filter_map(|l| l["id"].as_str())
+        .filter(|lid| !labels_to_remove.iter().any(|r| r == *lid))
+        .map(|s| s.to_string())
+        .collect();
+
+    let mutation = r#"
+        mutation($id: String!, $input: ProjectUpdateInput!) {
+            projectUpdate(id: $id, input: $input) {
+                success
+                project {
+                    name
+                    labels { nodes { name } }
+                }
+            }
+        }
+    "#;
+
+    let input = json!({ "labelIds": remaining_ids });
+    let result = client
+        .mutate(mutation, Some(json!({ "id": id, "input": input })))
+        .await?;
+
+    if result["data"]["projectUpdate"]["success"].as_bool() == Some(true) {
+        let project = &result["data"]["projectUpdate"]["project"];
+
+        if output.is_json() || output.has_template() {
+            print_json(project, output)?;
+            return Ok(());
+        }
+
+        let empty = vec![];
+        let labels: Vec<&str> = project["labels"]["nodes"]
+            .as_array()
+            .unwrap_or(&empty)
+            .iter()
+            .filter_map(|l| l["name"].as_str())
+            .collect();
+
+        if labels.is_empty() {
+            println!("{} All labels removed", "+".green());
+        } else {
+            println!("{} Labels updated: {}", "+".green(), labels.join(", "));
+        }
+    } else {
+        anyhow::bail!("Failed to remove labels");
+    }
+
+    Ok(())
+}
+
+async fn set_labels(id: &str, label_ids: Vec<String>, output: &OutputOptions) -> Result<()> {
+    let client = LinearClient::new()?;
+
+    let mutation = r#"
+        mutation($id: String!, $input: ProjectUpdateInput!) {
+            projectUpdate(id: $id, input: $input) {
+                success
+                project {
+                    name
+                    labels { nodes { name } }
+                }
+            }
+        }
+    "#;
+
+    let input = json!({ "labelIds": label_ids });
+    let result = client
+        .mutate(mutation, Some(json!({ "id": id, "input": input })))
+        .await?;
+
+    if result["data"]["projectUpdate"]["success"].as_bool() == Some(true) {
+        let project = &result["data"]["projectUpdate"]["project"];
+
+        if output.is_json() || output.has_template() {
+            print_json(project, output)?;
+            return Ok(());
+        }
+
+        let empty = vec![];
+        let labels: Vec<&str> = project["labels"]["nodes"]
+            .as_array()
+            .unwrap_or(&empty)
+            .iter()
+            .filter_map(|l| l["name"].as_str())
+            .collect();
+
+        if labels.is_empty() {
+            println!("{} All labels cleared", "+".green());
+        } else {
+            println!("{} Labels set to: {}", "+".green(), labels.join(", "));
+        }
+    } else {
+        anyhow::bail!("Failed to set labels");
     }
 
     Ok(())

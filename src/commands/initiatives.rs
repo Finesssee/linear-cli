@@ -48,6 +48,14 @@ pub enum InitiativeCommands {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Delete an initiative
+    Delete {
+        /// Initiative ID
+        id: String,
+        /// Skip confirmation
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Tabled)]
@@ -67,10 +75,10 @@ struct InitiativeRow {
 pub async fn handle(
     cmd: InitiativeCommands,
     output: &OutputOptions,
-    _pagination: &PaginationOptions,
+    pagination: &PaginationOptions,
 ) -> Result<()> {
     match cmd {
-        InitiativeCommands::List => list_initiatives(output).await,
+        InitiativeCommands::List => list_initiatives(output, pagination).await,
         InitiativeCommands::Get { id } => get_initiative(&id, output).await,
         InitiativeCommands::Create {
             name,
@@ -87,15 +95,18 @@ pub async fn handle(
             let dry_run = dry_run || output.dry_run;
             update_initiative(&id, name, description, status, dry_run, output).await
         }
+        InitiativeCommands::Delete { id, force } => delete_initiative(&id, force).await,
     }
 }
 
-async fn list_initiatives(output: &OutputOptions) -> Result<()> {
+async fn list_initiatives(output: &OutputOptions, pagination: &PaginationOptions) -> Result<()> {
     let client = LinearClient::new()?;
+    let pagination = pagination.with_default_limit(250);
+    let limit = pagination.limit.unwrap_or(250);
 
     let query = r#"
-        query {
-            initiatives(first: 250) {
+        query($first: Int) {
+            initiatives(first: $first) {
                 nodes {
                     id
                     name
@@ -113,7 +124,9 @@ async fn list_initiatives(output: &OutputOptions) -> Result<()> {
         }
     "#;
 
-    let result = client.query(query, None).await?;
+    let mut variables = serde_json::Map::new();
+    variables.insert("first".to_string(), json!(limit));
+    let result = client.query(query, Some(serde_json::Value::Object(variables))).await?;
     let initiatives = &result["data"]["initiatives"]["nodes"];
 
     if output.is_json() {
@@ -303,6 +316,38 @@ async fn update_initiative(
         println!("{} Initiative updated", "+".green());
     } else {
         anyhow::bail!("Failed to update initiative");
+    }
+
+    Ok(())
+}
+
+async fn delete_initiative(id: &str, force: bool) -> Result<()> {
+    if !force && !crate::is_yes() {
+        anyhow::bail!("Delete requires --force flag. Use: linear initiatives delete {} --force", id);
+    }
+
+    let client = LinearClient::new()?;
+
+    let mutation = r#"
+        mutation($id: String!) {
+            initiativeDelete(id: $id) {
+                success
+            }
+        }
+    "#;
+
+    let result = client
+        .mutate(mutation, Some(json!({ "id": id })))
+        .await?;
+
+    let success = result["data"]["initiativeDelete"]["success"]
+        .as_bool()
+        .unwrap_or(false);
+
+    if success {
+        println!("Initiative {} deleted.", id);
+    } else {
+        anyhow::bail!("Failed to delete initiative {}", id);
     }
 
     Ok(())

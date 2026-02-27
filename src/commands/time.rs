@@ -47,6 +47,17 @@ pub enum TimeCommands {
         #[arg(short, long)]
         force: bool,
     },
+    /// Update a time entry
+    Update {
+        /// Time entry ID
+        id: String,
+        /// New duration (e.g., "2h", "30m", "1h30m")
+        #[arg(short = 'u', long)]
+        duration: Option<String>,
+        /// New description
+        #[arg(short, long)]
+        description: Option<String>,
+    },
 }
 
 #[derive(Tabled)]
@@ -72,6 +83,11 @@ pub async fn handle(cmd: TimeCommands, output: &OutputOptions) -> Result<()> {
         } => log_time(&issue, &duration, description).await,
         TimeCommands::List { issue } => list_time_entries(issue, output).await,
         TimeCommands::Delete { id, force } => delete_time_entry(&id, force).await,
+        TimeCommands::Update {
+            id,
+            duration,
+            description,
+        } => update_time_entry(&id, duration, description).await,
     }
 }
 
@@ -355,7 +371,7 @@ async fn list_time_entries(issue_filter: Option<String>, output: &OutputOptions)
 }
 
 async fn delete_time_entry(id: &str, force: bool) -> Result<()> {
-    if !force {
+    if !force && !crate::is_yes() {
         let confirm = dialoguer::Confirm::new()
             .with_prompt(format!("Delete time entry {}?", id))
             .default(false)
@@ -383,6 +399,54 @@ async fn delete_time_entry(id: &str, force: bool) -> Result<()> {
         println!("{} Time entry deleted", "+".green());
     } else {
         anyhow::bail!("Failed to delete time entry");
+    }
+
+    Ok(())
+}
+
+async fn update_time_entry(
+    id: &str,
+    duration: Option<String>,
+    description: Option<String>,
+) -> Result<()> {
+    let mut input = serde_json::Map::new();
+
+    if let Some(d) = duration {
+        let minutes = parse_duration(&d)?;
+        input.insert("duration".to_string(), json!(minutes));
+    }
+    if let Some(desc) = description {
+        input.insert("description".to_string(), json!(desc));
+    }
+
+    if input.is_empty() {
+        anyhow::bail!("No fields to update. Specify --duration or --description.");
+    }
+
+    let client = LinearClient::new()?;
+
+    let mutation = r#"
+        mutation($id: String!, $input: TimeScheduleUpdateInput!) {
+            timeScheduleUpdate(id: $id, input: $input) {
+                success
+                timeSchedule {
+                    id
+                }
+            }
+        }
+    "#;
+
+    let result = client
+        .mutate(
+            mutation,
+            Some(json!({ "id": id, "input": serde_json::Value::Object(input) })),
+        )
+        .await?;
+
+    if result["data"]["timeScheduleUpdate"]["success"].as_bool() == Some(true) {
+        println!("{} Time entry updated", "+".green());
+    } else {
+        anyhow::bail!("Failed to update time entry");
     }
 
     Ok(())
