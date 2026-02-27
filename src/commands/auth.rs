@@ -151,7 +151,7 @@ async fn login(
 async fn logout(force: bool, output: &OutputOptions) -> Result<()> {
     let profile = config::current_profile()?;
 
-    if !force {
+    if !force && !crate::is_yes() {
         let confirmed = Confirm::new()
             .with_prompt(format!(
                 "Remove API key and profile '{}' from config?",
@@ -367,7 +367,7 @@ async fn migrate(keep_config: bool, force: bool, output: &OutputOptions) -> Resu
 
     let workspace_names: Vec<_> = config_data.workspaces.keys().cloned().collect();
 
-    if !force {
+    if !force && !crate::is_yes() {
         println!(
             "This will migrate {} workspace(s) to the keyring:",
             workspace_names.len()
@@ -583,7 +583,7 @@ async fn revoke(force: bool, output: &OutputOptions) -> Result<()> {
         }
     };
 
-    if !force {
+    if !force && !crate::is_yes() {
         let confirmed = Confirm::new()
             .with_prompt(format!(
                 "Revoke OAuth tokens for profile '{}'?",

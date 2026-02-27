@@ -62,6 +62,18 @@ pub struct AgentOptions {
     pub id_only: bool,
     /// Preview without making changes (where supported)
     pub dry_run: bool,
+    /// Auto-confirm all prompts (deletes, destructive operations)
+    pub yes: bool,
+}
+
+static YES_MODE: OnceLock<bool> = OnceLock::new();
+
+pub fn set_yes_mode(yes: bool) {
+    let _ = YES_MODE.set(yes);
+}
+
+pub fn is_yes() -> bool {
+    YES_MODE.get().copied().unwrap_or(false)
 }
 
 #[derive(Parser)]
@@ -97,6 +109,7 @@ COMMON FLAGS:
     --schema                      Print JSON schema version and exit
     --cache-ttl N                 Cache TTL in seconds
     --no-cache                    Disable cache usage
+    --yes                         Auto-confirm all prompts
 
 For more info on a command, run: linear <command> --help"#)]
 struct Cli {
@@ -211,6 +224,10 @@ struct Cli {
     #[arg(long, global = true)]
     dry_run: bool,
 
+    /// Auto-confirm all prompts (deletes, destructive operations)
+    #[arg(long, global = true, env = "LINEAR_CLI_YES")]
+    yes: bool,
+
     /// Number of retries for failed API requests (with exponential backoff)
     #[arg(long, global = true, default_value = "0")]
     retry: u32,
@@ -276,11 +293,15 @@ enum Commands {
     /// Diagnose configuration and connectivity
     #[command(after_help = r#"EXAMPLES:
     linear doctor                            # Check config and auth
-    linear doctor --check-api                # Validate API access"#)]
+    linear doctor --check-api                # Validate API access
+    linear doctor --fix                      # Auto-fix common issues"#)]
     Doctor {
         /// Validate API connectivity and auth
         #[arg(long)]
         check_api: bool,
+        /// Auto-fix common issues (stale cache, missing config, invalid API key)
+        #[arg(long)]
+        fix: bool,
     },
     /// Execute raw GraphQL queries and mutations against the Linear API
     #[command(after_help = r#"EXAMPLES:
@@ -629,6 +650,27 @@ Detects issue ID from branch names like:
     /// Show current authenticated user (alias for `users me`)
     #[command(alias = "me")]
     Whoami,
+    /// Mark the current branch's issue as Done
+    #[command(after_help = r#"EXAMPLES:
+    linear done                              # Mark current branch issue as Done
+    linear done --status "In Progress"       # Set to specific status instead
+
+Reads the current git branch, extracts the issue ID (e.g. feat/SCW-123-title → SCW-123),
+and updates the issue status."#)]
+    Done {
+        /// Status to set (default: "Done")
+        #[arg(short, long, default_value = "Done")]
+        status: String,
+    },
+    /// Guided onboarding wizard - configure auth, team, and output format
+    #[command(after_help = r#"EXAMPLES:
+    linear setup                             # Run interactive setup wizard
+
+Walks you through:
+  1. Setting your Linear API key
+  2. Choosing a default team
+  3. Selecting output format (table or json)"#)]
+    Setup,
     /// Configure CLI settings - API keys and workspaces
     #[command(after_help = r#"EXAMPLES:
     linear config set-key YOUR_API_KEY      # Set API key
@@ -809,11 +851,13 @@ async fn async_main() -> Result<()> {
         quiet: cli.quiet,
         id_only: cli.id_only,
         dry_run: cli.dry_run,
+        yes: cli.yes,
     };
 
     output::set_quiet_mode(
         cli.quiet || matches!(cli.output, OutputFormat::Json | OutputFormat::Ndjson),
     );
+    set_yes_mode(cli.yes);
 
     if cli.schema {
         let schema = serde_json::json!({
@@ -931,6 +975,8 @@ async fn run_command(
             println!("  Use --filter to reduce list results.");
             println!("  Use --id-only for chaining create/update commands.");
             println!("  Use --data - for JSON input on issue create/update.");
+            println!("  Use --yes to auto-confirm all prompts (deletes, destructive ops).");
+            println!("  Use 'linear done' to mark current branch's issue as Done.");
             println!();
             println!("Examples:");
             println!("  linear issues list --output json --compact --fields identifier,title");
@@ -965,12 +1011,10 @@ async fn run_command(
         Commands::Context => handle_context(output, agent_opts, retry).await?,
         Commands::Favorites { action } => favorites::handle(action, output).await?,
         Commands::Roadmaps { action } => {
-            let pagination = PaginationOptions::default();
-            roadmaps::handle(action, output, &pagination).await?
+            roadmaps::handle(action, output, &output.pagination).await?
         }
         Commands::Initiatives { action } => {
-            let pagination = PaginationOptions::default();
-            initiatives::handle(action, output, &pagination).await?
+            initiatives::handle(action, output, &output.pagination).await?
         }
         Commands::Triage { action } => triage::handle(action, output).await?,
         Commands::Metrics { action } => metrics::handle(action, output).await?,
@@ -992,9 +1036,11 @@ async fn run_command(
         },
         Commands::Relations { action } => relations::handle(action, output).await?,
         Commands::Whoami => users::handle(users::UserCommands::Me, output).await?,
+        Commands::Done { status } => handle_done(&status, output, agent_opts, retry).await?,
+        Commands::Setup => handle_setup(output).await?,
         Commands::Auth { action } => auth::handle(action, output).await?,
         Commands::Api { action } => commands::api::handle(action, output).await?,
-        Commands::Doctor { check_api } => doctor::run(output, check_api).await?,
+        Commands::Doctor { check_api, fix } => doctor::run(output, check_api, fix).await?,
         Commands::Config { action } => match action {
             ConfigCommands::SetKey { key } => {
                 config::set_api_key(&key)?;
@@ -1063,8 +1109,14 @@ fn setup_pager() -> Option<PagerGuard> {
         return None;
     }
 
+    // Split pager command to support args (e.g. PAGER="less -FRX")
+    let mut parts = pager_cmd.split_whitespace();
+    let program = parts.next()?;
+    let args: Vec<&str> = parts.collect();
+
     // Try to spawn pager with stdin piped
-    let mut child = match std::process::Command::new(&pager_cmd)
+    let mut child = match std::process::Command::new(program)
+        .args(&args)
         .stdin(std::process::Stdio::piped())
         .spawn()
     {
@@ -1201,6 +1253,259 @@ async fn handle_context(
         }
     } else {
         println!("{}", issue_id);
+    }
+
+    Ok(())
+}
+
+/// Handle the `done` command — mark the current branch's issue as Done (or a custom status)
+async fn handle_done(
+    status: &str,
+    output: &OutputOptions,
+    agent_opts: AgentOptions,
+    retry: u32,
+) -> Result<()> {
+    // Get current git branch
+    let branch_output = std::process::Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .output();
+
+    let branch = match branch_output {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
+        _ => {
+            anyhow::bail!("Not in a git repository or git not available");
+        }
+    };
+
+    // Extract issue ID from branch name
+    static DONE_ISSUE_RE: OnceLock<regex::Regex> = OnceLock::new();
+    let re = DONE_ISSUE_RE.get_or_init(|| regex::Regex::new(r"(?i)([a-z]+-\d+)").unwrap());
+
+    let issue_id = re
+        .find(&branch)
+        .map(|m| m.as_str().to_uppercase())
+        .ok_or_else(|| anyhow::anyhow!("No Linear issue ID found in branch: {}", branch))?;
+
+    if output.dry_run {
+        if output.is_json() || output.has_template() {
+            print_json_owned(
+                serde_json::json!({
+                    "dry_run": true,
+                    "would_update": {
+                        "issue_id": issue_id,
+                        "status": status,
+                    }
+                }),
+                output,
+            )?;
+        } else {
+            println!("[DRY RUN] Would set {} to status: {}", issue_id, status);
+        }
+        return Ok(());
+    }
+
+    let client = api::LinearClient::new_with_retry(retry)?;
+
+    // Get the issue's team to resolve the correct state
+    let query = r#"
+        query($id: String!) {
+            issue(id: $id) {
+                id
+                identifier
+                title
+                team { id }
+            }
+        }
+    "#;
+
+    let result = client
+        .query(query, Some(serde_json::json!({ "id": issue_id })))
+        .await?;
+    let issue = &result["data"]["issue"];
+    if issue.is_null() {
+        anyhow::bail!("Issue not found: {}", issue_id);
+    }
+
+    let team_id = issue["team"]["id"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("Could not determine team for {}", issue_id))?;
+
+    let state_id = api::resolve_state_id(&client, team_id, status).await?;
+
+    let mutation = r#"
+        mutation($id: String!, $stateId: String!) {
+            issueUpdate(id: $id, input: { stateId: $stateId }) {
+                success
+                issue {
+                    id
+                    identifier
+                    title
+                    state { name }
+                }
+            }
+        }
+    "#;
+
+    let result = client
+        .mutate(
+            mutation,
+            Some(serde_json::json!({ "id": issue_id, "stateId": state_id })),
+        )
+        .await?;
+
+    let success = result["data"]["issueUpdate"]["success"]
+        .as_bool()
+        .unwrap_or(false);
+
+    if !success {
+        anyhow::bail!("Failed to update issue {}", issue_id);
+    }
+
+    if output.is_json() || output.has_template() {
+        let updated = &result["data"]["issueUpdate"]["issue"];
+        print_json_owned(
+            serde_json::json!({
+                "issue_id": issue_id,
+                "status": status,
+                "updated": updated,
+            }),
+            output,
+        )?;
+    } else if !agent_opts.quiet {
+        let identifier = result["data"]["issueUpdate"]["issue"]["identifier"]
+            .as_str()
+            .unwrap_or(&issue_id);
+        let new_state = result["data"]["issueUpdate"]["issue"]["state"]["name"]
+            .as_str()
+            .unwrap_or(status);
+        println!("+ {} -> {}", identifier, new_state);
+    }
+
+    Ok(())
+}
+
+/// Handle the `setup` command — guided onboarding wizard
+async fn handle_setup(output: &OutputOptions) -> Result<()> {
+    use std::io::{self, Write};
+
+    println!("Linear CLI Setup");
+    println!("{}", "-".repeat(40));
+    println!();
+
+    // Step 1: API Key
+    println!("Step 1: Authentication");
+    println!("  Get your API key from: https://linear.app/settings/api");
+    println!();
+    print!("  Enter your Linear API key: ");
+    io::stdout().flush()?;
+
+    let mut api_key = String::new();
+    io::stdin().read_line(&mut api_key)?;
+    let api_key = api_key.trim().to_string();
+
+    if api_key.is_empty() {
+        anyhow::bail!("API key cannot be empty");
+    }
+
+    config::set_api_key(&api_key)?;
+    println!("  API key saved.");
+    println!();
+
+    // Step 2: Validate the key and pick default team
+    println!("Step 2: Default Team");
+    let client = api::LinearClient::new()?;
+
+    let teams_query = r#"
+        query {
+            teams {
+                nodes {
+                    id
+                    name
+                    key
+                }
+            }
+        }
+    "#;
+
+    match client.query(teams_query, None).await {
+        Ok(data) => {
+            let teams = &data["data"]["teams"]["nodes"];
+            if let Some(teams_arr) = teams.as_array() {
+                if teams_arr.is_empty() {
+                    println!("  No teams found. Skipping default team.");
+                } else {
+                    println!("  Available teams:");
+                    for (i, team) in teams_arr.iter().enumerate() {
+                        let key = team["key"].as_str().unwrap_or("?");
+                        let name = team["name"].as_str().unwrap_or("?");
+                        println!("    {}. {} ({})", i + 1, name, key);
+                    }
+                    println!();
+                    print!("  Select team number (or press Enter to skip): ");
+                    io::stdout().flush()?;
+
+                    let mut choice = String::new();
+                    io::stdin().read_line(&mut choice)?;
+                    let choice = choice.trim();
+
+                    if !choice.is_empty() {
+                        if let Ok(num) = choice.parse::<usize>() {
+                            if num >= 1 && num <= teams_arr.len() {
+                                let team = &teams_arr[num - 1];
+                                let key = team["key"].as_str().unwrap_or("?");
+                                println!("  Default team: {}", key);
+                                println!("  Tip: Use -t {} or set LINEAR_CLI_TEAM={}", key, key);
+                            } else {
+                                println!("  Invalid selection, skipping.");
+                            }
+                        } else {
+                            println!("  Invalid input, skipping.");
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            println!("  Could not fetch teams (API key may be invalid): {}", e);
+            println!("  Run 'linear doctor --check-api' to diagnose.");
+        }
+    }
+
+    println!();
+
+    // Step 3: Output format
+    println!("Step 3: Output Format");
+    println!("  1. table (default, human-readable)");
+    println!("  2. json (machine-readable, for scripts/agents)");
+    println!();
+    print!("  Select format [1]: ");
+    io::stdout().flush()?;
+
+    let mut format_choice = String::new();
+    io::stdin().read_line(&mut format_choice)?;
+    let format_choice = format_choice.trim();
+
+    match format_choice {
+        "2" | "json" => {
+            println!("  Output format: json");
+            println!("  Tip: Set LINEAR_CLI_OUTPUT=json in your shell profile.");
+        }
+        _ => {
+            println!("  Output format: table (default)");
+        }
+    }
+
+    println!();
+    println!("Setup complete!");
+
+    if output.is_json() || output.has_template() {
+        print_json_owned(
+            serde_json::json!({
+                "setup": true,
+                "api_key_saved": true,
+            }),
+            output,
+        )?;
     }
 
     Ok(())
