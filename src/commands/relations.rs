@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::{Subcommand, ValueEnum};
+use colored::Colorize;
 use serde_json::json;
 use tabled::{Table, Tabled};
 
@@ -226,7 +227,14 @@ async fn list_relations(id: &str, output: &OutputOptions) -> Result<()> {
             {
                 if let Some(related) = &rel.related_issue {
                     rows.push(RelationRow {
-                        relation_type: rel.relation_type.as_deref().unwrap_or("-").to_string(),
+                        relation_type: match rel.relation_type.as_deref() {
+                            Some("blocks") => "blocks".red().to_string(),
+                            Some("blockedBy") => "blocked by".yellow().to_string(),
+                            Some("duplicate") => "duplicate".dimmed().to_string(),
+                            Some("related") => "related".cyan().to_string(),
+                            Some(t) => t.to_string(),
+                            None => "-".to_string(),
+                        },
                         issue: related.identifier.clone(),
                         title: truncate(related.title.as_deref().unwrap_or("-"), max_width),
                         status: related
@@ -247,13 +255,15 @@ async fn list_relations(id: &str, output: &OutputOptions) -> Result<()> {
             {
                 if let Some(related) = &rel.issue {
                     let rel_type = match rel.relation_type.as_deref() {
-                        Some("blocks") => "blocked by",
-                        Some("blockedBy") => "blocks",
-                        Some(t) => t,
-                        None => "-",
+                        Some("blocks") => "blocked by".yellow().to_string(),
+                        Some("blockedBy") => "blocks".red().to_string(),
+                        Some("duplicate") => "duplicate".dimmed().to_string(),
+                        Some("related") => "related".cyan().to_string(),
+                        Some(t) => t.to_string(),
+                        None => "-".to_string(),
                     };
                     rows.push(RelationRow {
-                        relation_type: rel_type.to_string(),
+                        relation_type: rel_type,
                         issue: related.identifier.clone(),
                         title: truncate(related.title.as_deref().unwrap_or("-"), max_width),
                         status: related

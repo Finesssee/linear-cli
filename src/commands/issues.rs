@@ -917,6 +917,17 @@ fn format_history_entry(entry: &serde_json::Value) -> String {
         parts.push("Trashed".to_string());
     }
 
+    // SLA changes
+    if entry["slaStartedAt"].is_string() {
+        parts.push("SLA started".to_string());
+    }
+    if entry["slaBreachesAt"].is_string() {
+        parts.push(format!(
+            "SLA breaches at {}",
+            entry["slaBreachesAt"].as_str().unwrap_or("")
+        ));
+    }
+
     parts.join("; ")
 }
 
@@ -944,6 +955,8 @@ async fn get_issue(id: &str, output: &OutputOptions, history: bool, comments: bo
                         toProject { name }
                         archived
                         trashed
+                        slaBreachesAt
+                        slaStartedAt
                     }
                 }"#
     } else {
@@ -984,6 +997,11 @@ async fn get_issue(id: &str, output: &OutputOptions, history: bool, comments: bo
                 children {{ nodes {{ identifier title state {{ name }} }} }}
                 dueDate
                 estimate
+                slaStartedAt
+                slaMediumRiskAt
+                slaHighRiskAt
+                slaBreachesAt
+                slaType
                 {}
                 {}
             }}
@@ -1063,6 +1081,28 @@ async fn get_issue(id: &str, output: &OutputOptions, history: bool, comments: bo
     }
     if let Some(est) = issue["estimate"].as_f64() {
         println!("Estimate: {}", est);
+    }
+
+    // SLA information
+    let has_sla = !issue["slaType"].is_null() || !issue["slaStartedAt"].is_null();
+    if has_sla {
+        println!();
+        println!("{}", "SLA".bold());
+        if let Some(sla_type) = issue["slaType"].as_str() {
+            println!("  Type:       {}", sla_type);
+        }
+        if let Some(started) = issue["slaStartedAt"].as_str() {
+            println!("  Started:    {}", started);
+        }
+        if let Some(medium) = issue["slaMediumRiskAt"].as_str() {
+            println!("  Medium risk: {}", medium.yellow());
+        }
+        if let Some(high) = issue["slaHighRiskAt"].as_str() {
+            println!("  High risk:  {}", high.red());
+        }
+        if let Some(breaches) = issue["slaBreachesAt"].as_str() {
+            println!("  Breaches at: {}", breaches.red().bold());
+        }
     }
 
     // Sub-issues

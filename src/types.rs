@@ -370,6 +370,14 @@ pub struct Favorite {
     #[serde(default)]
     pub project: Option<Project>,
     #[serde(default)]
+    pub label: Option<LabelRef>,
+    #[serde(default)]
+    pub cycle: Option<Cycle>,
+    #[serde(default)]
+    pub document: Option<Document>,
+    #[serde(default)]
+    pub custom_view: Option<CustomView>,
+    #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
