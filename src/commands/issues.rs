@@ -742,9 +742,17 @@ async fn get_issues(ids: &[String], output: &OutputOptions, history: bool, comme
                             description
                             priority
                             url
+                            createdAt
+                            updatedAt
                             state { name }
                             team { name }
-                            assignee { name }
+                            assignee { name email }
+                            labels { nodes { name color } }
+                            project { name }
+                            parent { identifier title }
+                            children { nodes { identifier title state { name } } }
+                            dueDate
+                            estimate
                         }
                     }
                 "#;
