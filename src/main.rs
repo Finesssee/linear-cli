@@ -23,9 +23,9 @@ use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, Shell};
 use commands::{
     attachments, auth, bulk, comments, cycles, doctor, documents, export, favorites, git, history,
-    initiatives, interactive, issues, labels, metrics, notifications, project_updates, projects,
-    relations, roadmaps, search, sprint, statuses, sync, teams, templates, time, triage, uploads,
-    users, views, watch, webhooks,
+    import, initiatives, interactive, issues, labels, metrics, notifications, project_updates,
+    projects, relations, roadmaps, search, sprint, statuses, sync, teams, templates, time, triage,
+    uploads, users, views, watch, webhooks,
 };
 use error::CliError;
 use output::print_json_owned;
@@ -607,15 +607,27 @@ Detects issue ID from branch names like:
         #[command(subcommand)]
         action: commands::milestones::MilestoneCommands,
     },
-    /// Export issues to CSV or Markdown
+    /// Export issues to CSV, JSON, or Markdown
     #[command(alias = "exp")]
     #[command(after_help = r#"EXAMPLES:
     linear export csv --team ENG            # Export team issues to CSV
     linear exp csv -f issues.csv            # Export to file
-    linear exp markdown --team ENG          # Export as Markdown"#)]
+    linear exp json --team ENG --pretty     # Export as pretty JSON
+    linear exp markdown --team ENG          # Export as Markdown
+    linear exp projects-csv -f projects.csv # Export projects to CSV"#)]
     Export {
         #[command(subcommand)]
         action: export::ExportCommands,
+    },
+    /// Import issues from CSV or JSON files
+    #[command(alias = "im")]
+    #[command(after_help = r#"EXAMPLES:
+    linear import csv issues.csv -t ENG           # Import from CSV
+    linear im csv issues.csv -t ENG --dry-run     # Preview without creating
+    linear im json issues.json -t ENG             # Import from JSON"#)]
+    Import {
+        #[command(subcommand)]
+        action: import::ImportCommands,
     },
     /// View issue history and activity
     #[command(alias = "hist")]
@@ -712,11 +724,25 @@ Walks you through:
     linear completions bash > ~/.bash_completion.d/linear
     linear completions zsh > ~/.zfunc/_linear
     linear completions fish > ~/.config/fish/completions/linear.fish
-    linear comp powershell > linear.ps1"#)]
+    linear comp powershell > linear.ps1
+    linear comp dynamic bash   # Dynamic completions with argument value hints
+    linear comp dynamic zsh    # Dynamic completions for zsh"#)]
     Completions {
-        /// Shell to generate completions for
-        #[arg(value_enum)]
-        shell: Shell,
+        #[command(subcommand)]
+        action: CompletionCommands,
+    },
+    /// Internal: provide dynamic completion values (hidden from help)
+    #[command(name = "_complete", hide = true)]
+    Complete {
+        /// What to complete: teams, projects, issues, statuses, users, labels
+        #[arg(long = "type")]
+        type_: String,
+        /// Partial input to filter
+        #[arg(long, default_value = "")]
+        prefix: String,
+        /// Team context for scoped completions (e.g. statuses)
+        #[arg(long)]
+        team: Option<String>,
     },
     /// Configure CLI settings - API keys and workspaces
     #[command(after_help = r#"EXAMPLES:
@@ -827,6 +853,22 @@ enum WatchCommands {
         /// Polling interval in seconds
         #[arg(short, long, default_value = "10")]
         interval: u64,
+    },
+}
+
+#[derive(Subcommand)]
+enum CompletionCommands {
+    /// Generate static shell completions (command names and flags)
+    Static {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: Shell,
+    },
+    /// Generate dynamic shell completions (argument values from Linear API)
+    Dynamic {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: Shell,
     },
 }
 
@@ -1069,6 +1111,7 @@ async fn run_command(
         Commands::Metrics { action } => metrics::handle(action, output).await?,
         Commands::Milestones { action } => commands::milestones::handle(action, output).await?,
         Commands::Export { action } => export::handle(action, output).await?,
+        Commands::Import { action } => import::handle(action, output).await?,
         Commands::History { action } => history::handle(action, output).await?,
         Commands::Views { action } => views::handle(action, output).await?,
         Commands::Webhooks { action } => webhooks::handle(action, output).await?,
@@ -1088,10 +1131,20 @@ async fn run_command(
         Commands::Done { status } => handle_done(&status, output, agent_opts, retry).await?,
         Commands::Setup => handle_setup(output).await?,
         Commands::Sprint { action } => sprint::handle(action, output).await?,
-        Commands::Completions { shell } => {
-            let mut cmd = Cli::command();
-            generate(shell, &mut cmd, "linear-cli", &mut std::io::stdout());
-        }
+        Commands::Completions { action } => match action {
+            CompletionCommands::Static { shell } => {
+                let mut cmd = Cli::command();
+                generate(shell, &mut cmd, "linear-cli", &mut std::io::stdout());
+            }
+            CompletionCommands::Dynamic { shell } => {
+                print_dynamic_completion_script(shell);
+            }
+        },
+        Commands::Complete {
+            type_,
+            prefix,
+            team,
+        } => handle_complete(&type_, &prefix, team.as_deref()).await?,
         Commands::Auth { action } => auth::handle(action, output).await?,
         Commands::Api { action } => commands::api::handle(action, output).await?,
         Commands::Doctor { check_api, fix } => doctor::run(output, check_api, fix).await?,
@@ -1564,3 +1617,518 @@ async fn handle_setup(output: &OutputOptions) -> Result<()> {
 
     Ok(())
 }
+
+/// Handle the hidden `_complete` command -- output dynamic completion values
+async fn handle_complete(type_: &str, prefix: &str, team: Option<&str>) -> Result<()> {
+    // Try to use cache first for fast completions; fall back to API
+    let cache = cache::Cache::new().ok();
+
+    match type_ {
+        "teams" => complete_teams(cache.as_ref(), prefix).await,
+        "projects" => complete_projects(cache.as_ref(), prefix).await,
+        "issues" => complete_issues(prefix).await,
+        "statuses" => complete_statuses(cache.as_ref(), prefix, team).await,
+        "users" => complete_users(cache.as_ref(), prefix).await,
+        "labels" => complete_labels(cache.as_ref(), prefix).await,
+        _ => Ok(()), // Unknown type, return empty
+    }
+}
+
+/// Complete team keys with descriptions
+async fn complete_teams(cache: Option<&cache::Cache>, prefix: &str) -> Result<()> {
+    let teams = if let Some(data) = cache.and_then(|c| c.get(cache::CacheType::Teams)) {
+        data.as_array().cloned().unwrap_or_default()
+    } else {
+        match fetch_teams_for_completion().await {
+            Ok(t) => t,
+            Err(_) => return Ok(()),
+        }
+    };
+
+    let prefix_lower = prefix.to_lowercase();
+    for team in &teams {
+        let key = team["key"].as_str().unwrap_or("");
+        let name = team["name"].as_str().unwrap_or("");
+        if prefix.is_empty()
+            || key.to_lowercase().starts_with(&prefix_lower)
+            || name.to_lowercase().starts_with(&prefix_lower)
+        {
+            println!("{}\t{}", key, name);
+        }
+    }
+    Ok(())
+}
+
+/// Complete project names with descriptions
+async fn complete_projects(cache: Option<&cache::Cache>, prefix: &str) -> Result<()> {
+    let projects = if let Some(data) = cache.and_then(|c| c.get(cache::CacheType::Projects)) {
+        data.as_array().cloned().unwrap_or_default()
+    } else {
+        match fetch_projects_for_completion().await {
+            Ok(p) => p,
+            Err(_) => return Ok(()),
+        }
+    };
+
+    let prefix_lower = prefix.to_lowercase();
+    for project in &projects {
+        let name = project["name"].as_str().unwrap_or("");
+        let state = project["state"].as_str().unwrap_or("");
+        if prefix.is_empty() || name.to_lowercase().starts_with(&prefix_lower) {
+            println!("{}\t{}", name, state);
+        }
+    }
+    Ok(())
+}
+
+/// Complete issue identifiers with titles (no cache -- issues change frequently)
+async fn complete_issues(prefix: &str) -> Result<()> {
+    let client = match api::LinearClient::new() {
+        Ok(c) => c,
+        Err(_) => return Ok(()),
+    };
+
+    let query = r#"
+        query($first: Int) {
+            issues(first: $first, orderBy: updatedAt) {
+                nodes {
+                    identifier
+                    title
+                }
+            }
+        }
+    "#;
+
+    let result = match client
+        .query(query, Some(serde_json::json!({ "first": 50 })))
+        .await
+    {
+        Ok(r) => r,
+        Err(_) => return Ok(()),
+    };
+
+    let empty = vec![];
+    let issues = result["data"]["issues"]["nodes"]
+        .as_array()
+        .unwrap_or(&empty);
+
+    let prefix_upper = prefix.to_uppercase();
+    for issue in issues {
+        let id = issue["identifier"].as_str().unwrap_or("");
+        let title = issue["title"].as_str().unwrap_or("");
+        if prefix.is_empty() || id.to_uppercase().starts_with(&prefix_upper) {
+            println!("{}\t{}", id, title);
+        }
+    }
+    Ok(())
+}
+
+/// Complete workflow state names with category
+async fn complete_statuses(
+    cache: Option<&cache::Cache>,
+    prefix: &str,
+    team: Option<&str>,
+) -> Result<()> {
+    let client = match api::LinearClient::new() {
+        Ok(c) => c,
+        Err(_) => return Ok(()),
+    };
+
+    // Resolve team to get statuses -- if no team given, try to get first team as default
+    let team_id = if let Some(t) = team {
+        match api::resolve_team_id(
+            &client,
+            t,
+            &cache::CacheOptions {
+                ttl_seconds: None,
+                no_cache: false,
+            },
+        )
+        .await
+        {
+            Ok(id) => id,
+            Err(_) => return Ok(()),
+        }
+    } else {
+        // Try to get first team as default
+        let teams = if let Some(data) = cache.and_then(|c| c.get(cache::CacheType::Teams)) {
+            data.as_array().cloned().unwrap_or_default()
+        } else {
+            match fetch_teams_for_completion().await {
+                Ok(t) => t,
+                Err(_) => return Ok(()),
+            }
+        };
+        match teams.first().and_then(|t| t["id"].as_str()) {
+            Some(id) => id.to_string(),
+            None => return Ok(()),
+        }
+    };
+
+    // Check cache for statuses
+    let states =
+        if let Some(cached) = cache.and_then(|c| c.get_keyed(cache::CacheType::Statuses, &team_id))
+        {
+            cached["states"].as_array().cloned().unwrap_or_default()
+        } else {
+            // Fetch from API
+            let query = r#"
+                query($teamId: String!) {
+                    team(id: $teamId) {
+                        states {
+                            nodes {
+                                id
+                                name
+                                type
+                            }
+                        }
+                    }
+                }
+            "#;
+
+            match client
+                .query(query, Some(serde_json::json!({ "teamId": team_id })))
+                .await
+            {
+                Ok(result) => result["data"]["team"]["states"]["nodes"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default(),
+                Err(_) => return Ok(()),
+            }
+        };
+
+    let prefix_lower = prefix.to_lowercase();
+    for state in &states {
+        let name = state["name"].as_str().unwrap_or("");
+        let type_ = state["type"].as_str().unwrap_or("");
+        if prefix.is_empty() || name.to_lowercase().starts_with(&prefix_lower) {
+            println!("{}\t{}", name, type_);
+        }
+    }
+    Ok(())
+}
+
+/// Complete user display names / emails
+async fn complete_users(cache: Option<&cache::Cache>, prefix: &str) -> Result<()> {
+    let users = if let Some(data) = cache.and_then(|c| c.get(cache::CacheType::Users)) {
+        data.as_array().cloned().unwrap_or_default()
+    } else {
+        match fetch_users_for_completion().await {
+            Ok(u) => u,
+            Err(_) => return Ok(()),
+        }
+    };
+
+    let prefix_lower = prefix.to_lowercase();
+    for user in &users {
+        let name = user["name"].as_str().unwrap_or("");
+        let email = user["email"].as_str().unwrap_or("");
+        let display = if !email.is_empty() { email } else { name };
+        if prefix.is_empty()
+            || name.to_lowercase().starts_with(&prefix_lower)
+            || email.to_lowercase().starts_with(&prefix_lower)
+        {
+            println!("{}\t{}", display, name);
+        }
+    }
+    Ok(())
+}
+
+/// Complete label names
+async fn complete_labels(cache: Option<&cache::Cache>, prefix: &str) -> Result<()> {
+    let labels = if let Some(data) = cache.and_then(|c| c.get(cache::CacheType::Labels)) {
+        data.as_array().cloned().unwrap_or_default()
+    } else {
+        match fetch_labels_for_completion().await {
+            Ok(l) => l,
+            Err(_) => return Ok(()),
+        }
+    };
+
+    let prefix_lower = prefix.to_lowercase();
+    for label in &labels {
+        let name = label["name"].as_str().unwrap_or("");
+        let color = label["color"].as_str().unwrap_or("");
+        if prefix.is_empty() || name.to_lowercase().starts_with(&prefix_lower) {
+            println!("{}\t{}", name, color);
+        }
+    }
+    Ok(())
+}
+
+/// Fetch teams from API for completion (lightweight query)
+async fn fetch_teams_for_completion() -> Result<Vec<serde_json::Value>> {
+    let client = api::LinearClient::new()?;
+    let query = r#"
+        query {
+            teams(first: 50) {
+                nodes { id name key }
+            }
+        }
+    "#;
+    let result = client.query(query, None).await?;
+    Ok(result["data"]["teams"]["nodes"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default())
+}
+
+/// Fetch projects from API for completion (lightweight query)
+async fn fetch_projects_for_completion() -> Result<Vec<serde_json::Value>> {
+    let client = api::LinearClient::new()?;
+    let query = r#"
+        query {
+            projects(first: 50, orderBy: updatedAt) {
+                nodes { id name state }
+            }
+        }
+    "#;
+    let result = client.query(query, None).await?;
+    Ok(result["data"]["projects"]["nodes"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default())
+}
+
+/// Fetch users from API for completion (lightweight query)
+async fn fetch_users_for_completion() -> Result<Vec<serde_json::Value>> {
+    let client = api::LinearClient::new()?;
+    let query = r#"
+        query {
+            users(first: 50) {
+                nodes { id name email }
+            }
+        }
+    "#;
+    let result = client.query(query, None).await?;
+    Ok(result["data"]["users"]["nodes"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default())
+}
+
+/// Fetch labels from API for completion (lightweight query)
+async fn fetch_labels_for_completion() -> Result<Vec<serde_json::Value>> {
+    let client = api::LinearClient::new()?;
+    let query = r#"
+        query {
+            issueLabels(first: 50) {
+                nodes { id name color }
+            }
+        }
+    "#;
+    let result = client.query(query, None).await?;
+    Ok(result["data"]["issueLabels"]["nodes"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default())
+}
+
+/// Print shell-specific dynamic completion script
+fn print_dynamic_completion_script(shell: Shell) {
+    match shell {
+        Shell::Bash => print!("{}", BASH_DYNAMIC_COMPLETIONS),
+        Shell::Zsh => print!("{}", ZSH_DYNAMIC_COMPLETIONS),
+        Shell::Fish => print!("{}", FISH_DYNAMIC_COMPLETIONS),
+        Shell::PowerShell => print!("{}", POWERSHELL_DYNAMIC_COMPLETIONS),
+        _ => {
+            eprintln!("Dynamic completions not supported for this shell. Supported: bash, zsh, fish, powershell");
+        }
+    }
+}
+
+const BASH_DYNAMIC_COMPLETIONS: &str = r#"# Dynamic completions for linear-cli (bash)
+# Source this file or add to ~/.bashrc:
+#   eval "$(linear-cli completions dynamic bash)"
+
+_linear_cli_dynamic() {
+    local cur prev
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    # Find --team value in command line for scoped completions
+    local team_val=""
+    local i
+    for (( i=1; i < COMP_CWORD; i++ )); do
+        if [[ "${COMP_WORDS[i]}" == "-t" || "${COMP_WORDS[i]}" == "--team" ]]; then
+            team_val="${COMP_WORDS[i+1]}"
+            break
+        fi
+    done
+
+    case "$prev" in
+        -t|--team)
+            local IFS=$'\n'
+            COMPREPLY=($(compgen -W "$(linear-cli _complete --type teams --prefix "$cur" 2>/dev/null | cut -f1)" -- "$cur"))
+            return 0
+            ;;
+        -s|--status)
+            local team_arg=""
+            if [[ -n "$team_val" ]]; then
+                team_arg="--team $team_val"
+            fi
+            local IFS=$'\n'
+            COMPREPLY=($(compgen -W "$(linear-cli _complete --type statuses --prefix "$cur" $team_arg 2>/dev/null | cut -f1)" -- "$cur"))
+            return 0
+            ;;
+        --project)
+            local IFS=$'\n'
+            COMPREPLY=($(compgen -W "$(linear-cli _complete --type projects --prefix "$cur" 2>/dev/null | cut -f1)" -- "$cur"))
+            return 0
+            ;;
+        --label|-l)
+            local IFS=$'\n'
+            COMPREPLY=($(compgen -W "$(linear-cli _complete --type labels --prefix "$cur" 2>/dev/null | cut -f1)" -- "$cur"))
+            return 0
+            ;;
+        --assignee|--user)
+            local IFS=$'\n'
+            COMPREPLY=($(compgen -W "$(linear-cli _complete --type users --prefix "$cur" 2>/dev/null | cut -f1)" -- "$cur"))
+            return 0
+            ;;
+    esac
+
+    # Complete issue IDs when the previous word is a subcommand that takes an issue
+    local subcmds_taking_issue="get update start close done archive unarchive comment link assign move transfer open"
+    for subcmd in $subcmds_taking_issue; do
+        if [[ "$prev" == "$subcmd" ]]; then
+            local IFS=$'\n'
+            COMPREPLY=($(compgen -W "$(linear-cli _complete --type issues --prefix "$cur" 2>/dev/null | cut -f1)" -- "$cur"))
+            return 0
+        fi
+    done
+}
+
+# Register the dynamic completion function
+complete -o default -F _linear_cli_dynamic linear-cli
+"#;
+
+const ZSH_DYNAMIC_COMPLETIONS: &str = r#"# Dynamic completions for linear-cli (zsh)
+# Source this file or add to ~/.zshrc:
+#   eval "$(linear-cli completions dynamic zsh)"
+
+_linear_cli_dynamic() {
+    local -a completions
+    local team_val=""
+
+    # Extract --team value from command line
+    local -i i
+    for (( i=2; i < CURRENT; i++ )); do
+        if [[ "$words[$i]" == "-t" || "$words[$i]" == "--team" ]]; then
+            team_val="$words[$((i+1))]"
+            break
+        fi
+    done
+
+    case "$words[$((CURRENT-1))]" in
+        -t|--team)
+            completions=(${(f)"$(linear-cli _complete --type teams --prefix "$words[$CURRENT]" 2>/dev/null)"})
+            _describe 'team' completions
+            return
+            ;;
+        -s|--status)
+            local team_arg=""
+            if [[ -n "$team_val" ]]; then
+                team_arg="--team $team_val"
+            fi
+            completions=(${(f)"$(linear-cli _complete --type statuses --prefix "$words[$CURRENT]" ${=team_arg} 2>/dev/null)"})
+            _describe 'status' completions
+            return
+            ;;
+        --project)
+            completions=(${(f)"$(linear-cli _complete --type projects --prefix "$words[$CURRENT]" 2>/dev/null)"})
+            _describe 'project' completions
+            return
+            ;;
+        --label|-l)
+            completions=(${(f)"$(linear-cli _complete --type labels --prefix "$words[$CURRENT]" 2>/dev/null)"})
+            _describe 'label' completions
+            return
+            ;;
+        --assignee|--user)
+            completions=(${(f)"$(linear-cli _complete --type users --prefix "$words[$CURRENT]" 2>/dev/null)"})
+            _describe 'user' completions
+            return
+            ;;
+        get|update|start|close|done|archive|unarchive|comment|link|assign|move|transfer|open)
+            completions=(${(f)"$(linear-cli _complete --type issues --prefix "$words[$CURRENT]" 2>/dev/null)"})
+            _describe 'issue' completions
+            return
+            ;;
+    esac
+}
+
+compdef _linear_cli_dynamic linear-cli
+"#;
+
+const FISH_DYNAMIC_COMPLETIONS: &str = r#"# Dynamic completions for linear-cli (fish)
+# Source this file or save to ~/.config/fish/completions/linear-cli-dynamic.fish:
+#   linear-cli completions dynamic fish > ~/.config/fish/completions/linear-cli-dynamic.fish
+
+# Team completions
+complete -c linear-cli -l team -s t -x -a '(linear-cli _complete --type teams 2>/dev/null | string replace \t "\t")'
+
+# Status completions (tries to pick up --team from current command line)
+complete -c linear-cli -l status -s s -x -a '(linear-cli _complete --type statuses 2>/dev/null | string replace \t "\t")'
+
+# Project completions
+complete -c linear-cli -l project -x -a '(linear-cli _complete --type projects 2>/dev/null | string replace \t "\t")'
+
+# Label completions
+complete -c linear-cli -l label -s l -x -a '(linear-cli _complete --type labels 2>/dev/null | string replace \t "\t")'
+
+# User completions
+complete -c linear-cli -l assignee -x -a '(linear-cli _complete --type users 2>/dev/null | string replace \t "\t")'
+complete -c linear-cli -l user -x -a '(linear-cli _complete --type users 2>/dev/null | string replace \t "\t")'
+
+# Issue ID completions for subcommands that take an issue
+for subcmd in get update start close done archive unarchive comment link assign move transfer open
+    complete -c linear-cli -n "__fish_seen_subcommand_from $subcmd" -x -a '(linear-cli _complete --type issues 2>/dev/null | string replace \t "\t")'
+end
+"#;
+
+const POWERSHELL_DYNAMIC_COMPLETIONS: &str = r#"# Dynamic completions for linear-cli (PowerShell)
+# Source this file or add to your $PROFILE:
+#   linear-cli completions dynamic powershell | Invoke-Expression
+
+Register-ArgumentCompleter -CommandName linear-cli -ScriptBlock {
+    param($commandName, $wordToComplete, $cursorPosition)
+
+    $tokens = $wordToComplete -split '\s+'
+    $prev = if ($tokens.Length -gt 1) { $tokens[-2] } else { '' }
+    $current = $tokens[-1]
+
+    # Find --team value in tokens
+    $teamVal = ''
+    for ($i = 0; $i -lt $tokens.Length; $i++) {
+        if ($tokens[$i] -eq '-t' -or $tokens[$i] -eq '--team') {
+            if ($i + 1 -lt $tokens.Length) { $teamVal = $tokens[$i + 1] }
+            break
+        }
+    }
+
+    $type = switch ($prev) {
+        { $_ -in '-t', '--team' } { 'teams' }
+        { $_ -in '-s', '--status' } { 'statuses' }
+        '--project' { 'projects' }
+        { $_ -in '-l', '--label' } { 'labels' }
+        { $_ -in '--assignee', '--user' } { 'users' }
+        { $_ -in 'get', 'update', 'start', 'close', 'done', 'archive', 'unarchive', 'comment', 'link', 'assign', 'move', 'transfer', 'open' } { 'issues' }
+        default { $null }
+    }
+
+    if ($type) {
+        $teamArg = if ($teamVal -and $type -eq 'statuses') { "--team $teamVal" } else { '' }
+        $results = linear-cli _complete --type $type --prefix $current $teamArg 2>$null
+        if ($results) {
+            $results | ForEach-Object {
+                $parts = $_ -split '\t', 2
+                $value = $parts[0]
+                $desc = if ($parts.Length -gt 1) { $parts[1] } else { '' }
+                [System.Management.Automation.CompletionResult]::new($value, $value, 'ParameterValue', $desc)
+            }
+        }
+    }
+}
+"#;
