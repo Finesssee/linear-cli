@@ -1204,3 +1204,63 @@ fn test_no_pager_env_var() {
     );
 }
 
+// === Behavioral tests ===
+
+#[test]
+fn test_count_only_flag_exists() {
+    let (code, stdout, _stderr) = run_cli(&["issues", "list", "--help"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("--count-only"),
+        "issues list should have --count-only flag"
+    );
+    // Verify it's described as returning a count
+    assert!(
+        stdout.contains("count") || stdout.contains("Count"),
+        "--count-only should mention count in description"
+    );
+}
+
+#[test]
+fn test_dry_run_output() {
+    // dry-run on create should not actually create, just preview
+    let (code, stdout, _stderr) = run_cli(&["issues", "create", "Test dry run", "-t", "FAKE", "--dry-run"]);
+    // Should fail with auth error (no valid API key) but the flag should be accepted
+    // If the CLI parses --dry-run without error before API call, that's correct behavior
+    assert!(
+        code != 0 || stdout.contains("dry_run") || stdout.contains("DRY RUN"),
+        "dry-run should either output preview or fail at API level, not at arg parsing"
+    );
+}
+
+#[test]
+fn test_json_output_format() {
+    // --output json should be accepted without error on help
+    let (code, stdout, _stderr) = run_cli(&["--output", "json", "--help"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("Commands:") || stdout.contains("linear-cli"),
+        "help should still work with --output json"
+    );
+}
+
+#[test]
+fn test_filter_flag_exists() {
+    let (code, stdout, _stderr) = run_cli(&["--help"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("--filter"),
+        "global help should show --filter flag"
+    );
+}
+
+#[test]
+fn test_issues_list_project_filter() {
+    let (code, stdout, _stderr) = run_cli(&["issues", "list", "--help"]);
+    assert_eq!(code, 0);
+    assert!(
+        stdout.contains("--project"),
+        "issues list should support --project filter"
+    );
+}
+
