@@ -7,6 +7,7 @@ use std::io::Write;
 use crate::api::LinearClient;
 use crate::output::OutputOptions;
 use crate::pagination::{paginate_nodes, stream_nodes, PaginationOptions};
+use colored::Colorize;
 
 #[derive(Subcommand, Debug)]
 pub enum ExportCommands {
@@ -43,6 +44,36 @@ pub enum ExportCommands {
         #[arg(long)]
         all: bool,
     },
+    /// Export issues to JSON file
+    Json {
+        /// Team key to export
+        #[arg(short, long)]
+        team: Option<String>,
+        /// Output file (default: stdout)
+        #[arg(short, long, value_hint = ValueHint::FilePath)]
+        file: Option<String>,
+        /// Include completed issues
+        #[arg(long)]
+        include_completed: bool,
+        /// Limit number of issues (default: 250, ignored with --all)
+        #[arg(long)]
+        limit: Option<usize>,
+        /// Export all matching issues
+        #[arg(long)]
+        all: bool,
+        /// Pretty-print JSON output
+        #[arg(long)]
+        pretty: bool,
+    },
+    /// Export projects to CSV
+    ProjectsCsv {
+        /// Output file (default: stdout)
+        #[arg(short, long, value_hint = ValueHint::FilePath)]
+        file: Option<String>,
+        /// Include archived projects
+        #[arg(long)]
+        archived: bool,
+    },
 }
 
 pub async fn handle(cmd: ExportCommands, _output: &OutputOptions) -> Result<()> {
@@ -60,6 +91,17 @@ pub async fn handle(cmd: ExportCommands, _output: &OutputOptions) -> Result<()> 
             limit,
             all,
         } => export_markdown(team, file, limit, all).await,
+        ExportCommands::Json {
+            team,
+            file,
+            include_completed,
+            limit,
+            all,
+            pretty,
+        } => export_json(team, file, include_completed, limit, all, pretty).await,
+        ExportCommands::ProjectsCsv { file, archived } => {
+            export_projects_csv(file, archived).await
+        }
     }
 }
 
@@ -328,6 +370,252 @@ async fn export_markdown(
 
     if let Some(ref path) = file {
         eprintln!("Exported {} issues to {}", issues.len(), path);
+    }
+
+    Ok(())
+}
+
+async fn export_json(
+    team: Option<String>,
+    file: Option<String>,
+    include_completed: bool,
+    limit: Option<usize>,
+    all: bool,
+    pretty: bool,
+) -> Result<()> {
+    let client = LinearClient::new()?;
+
+    let query = r#"
+        query($filter: IssueFilter, $first: Int, $after: String, $last: Int, $before: String) {
+            issues(first: $first, after: $after, last: $last, before: $before, filter: $filter) {
+                nodes {
+                    identifier
+                    title
+                    description
+                    priority
+                    estimate
+                    dueDate
+                    createdAt
+                    updatedAt
+                    state { name type }
+                    assignee { name email }
+                    team { key name }
+                    labels { nodes { name } }
+                    project { name }
+                    cycle { number name }
+                }
+                pageInfo {
+                    hasNextPage
+                    endCursor
+                    hasPreviousPage
+                    startCursor
+                }
+            }
+        }
+    "#;
+
+    let mut filter = json!({});
+    if let Some(ref t) = team {
+        filter["team"] = json!({ "key": { "eq": t } });
+    }
+    if !include_completed {
+        filter["state"] = json!({ "type": { "neq": "completed" } });
+    }
+
+    let mut vars = serde_json::Map::new();
+    vars.insert("filter".to_string(), filter);
+
+    let mut pagination = PaginationOptions {
+        page_size: Some(250),
+        ..Default::default()
+    };
+    if all {
+        pagination.all = true;
+    } else {
+        pagination.limit = Some(limit.unwrap_or(250));
+    }
+
+    let issues = paginate_nodes(
+        &client,
+        query,
+        vars,
+        &["data", "issues", "nodes"],
+        &["data", "issues", "pageInfo"],
+        &pagination,
+        250,
+    )
+    .await?;
+
+    // Flatten issue objects for easier re-import
+    let flattened: Vec<serde_json::Value> = issues
+        .iter()
+        .map(|issue| {
+            let labels: Vec<&str> = issue["labels"]["nodes"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|l| l["name"].as_str()).collect())
+                .unwrap_or_default();
+
+            json!({
+                "identifier": issue["identifier"],
+                "title": issue["title"],
+                "description": issue["description"],
+                "priority": issue["priority"],
+                "estimate": issue["estimate"],
+                "dueDate": issue["dueDate"],
+                "status": issue["state"]["name"],
+                "statusType": issue["state"]["type"],
+                "assignee": issue["assignee"]["name"],
+                "assigneeEmail": issue["assignee"]["email"],
+                "team": issue["team"]["key"],
+                "teamName": issue["team"]["name"],
+                "project": issue["project"]["name"],
+                "cycleNumber": issue["cycle"]["number"],
+                "cycleName": issue["cycle"]["name"],
+                "labels": labels,
+                "createdAt": issue["createdAt"],
+                "updatedAt": issue["updatedAt"],
+            })
+        })
+        .collect();
+
+    let json_output = if pretty {
+        serde_json::to_string_pretty(&flattened)?
+    } else {
+        serde_json::to_string(&flattened)?
+    };
+
+    if let Some(ref path) = file {
+        std::fs::write(path, &json_output)?;
+        eprintln!("Exported {} issues to {}", flattened.len(), path);
+    } else {
+        println!("{}", json_output);
+    }
+
+    Ok(())
+}
+
+async fn export_projects_csv(file: Option<String>, include_archived: bool) -> Result<()> {
+    let client = LinearClient::new()?;
+
+    let query = r#"
+        query($includeArchived: Boolean, $first: Int, $after: String, $last: Int, $before: String) {
+            projects(first: $first, after: $after, last: $last, before: $before, includeArchived: $includeArchived) {
+                nodes {
+                    id
+                    name
+                    description
+                    state
+                    priority
+                    progress
+                    startDate
+                    targetDate
+                    url
+                    createdAt
+                    updatedAt
+                    lead { name email }
+                    teams { nodes { key name } }
+                    members { nodes { name } }
+                }
+                pageInfo {
+                    hasNextPage
+                    endCursor
+                    hasPreviousPage
+                    startCursor
+                }
+            }
+        }
+    "#;
+
+    let mut vars = serde_json::Map::new();
+    vars.insert("includeArchived".to_string(), json!(include_archived));
+
+    let pagination = PaginationOptions {
+        page_size: Some(50),
+        all: true,
+        ..Default::default()
+    };
+
+    let projects = paginate_nodes(
+        &client,
+        query,
+        vars,
+        &["data", "projects", "nodes"],
+        &["data", "projects", "pageInfo"],
+        &pagination,
+        50,
+    )
+    .await?;
+
+    let mut wtr: Writer<Box<dyn Write>> = if let Some(ref path) = file {
+        Writer::from_writer(Box::new(std::fs::File::create(path)?))
+    } else {
+        Writer::from_writer(Box::new(std::io::stdout()))
+    };
+
+    wtr.write_record([
+        "Name",
+        "State",
+        "Priority",
+        "Progress",
+        "Start Date",
+        "Target Date",
+        "Lead",
+        "Teams",
+        "Members",
+        "Created",
+        "Updated",
+        "URL",
+    ])?;
+
+    for project in &projects {
+        let teams: Vec<&str> = project["teams"]["nodes"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|t| t["key"].as_str()).collect())
+            .unwrap_or_default();
+
+        let members: Vec<&str> = project["members"]["nodes"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|m| m["name"].as_str()).collect())
+            .unwrap_or_default();
+
+        let progress = project["progress"]
+            .as_f64()
+            .map(|p| format!("{:.0}%", p * 100.0))
+            .unwrap_or_default();
+
+        wtr.write_record([
+            project["name"].as_str().unwrap_or(""),
+            project["state"].as_str().unwrap_or(""),
+            &project["priority"].as_i64().unwrap_or(0).to_string(),
+            &progress,
+            project["startDate"].as_str().unwrap_or(""),
+            project["targetDate"].as_str().unwrap_or(""),
+            project["lead"]["name"].as_str().unwrap_or(""),
+            &teams.join("; "),
+            &members.join("; "),
+            &project["createdAt"]
+                .as_str()
+                .unwrap_or("")
+                .chars()
+                .take(10)
+                .collect::<String>(),
+            &project["updatedAt"]
+                .as_str()
+                .unwrap_or("")
+                .chars()
+                .take(10)
+                .collect::<String>(),
+            project["url"].as_str().unwrap_or(""),
+        ])?;
+    }
+
+    wtr.flush()?;
+
+    if let Some(ref path) = file {
+        eprintln!(
+            "{}",
+            format!("Exported {} projects to {}", projects.len(), path).green()
+        );
     }
 
     Ok(())
