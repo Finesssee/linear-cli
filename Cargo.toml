@@ -44,6 +44,14 @@ hex = "0.4"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }{ archive-suffix }"
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
+
 [features]
 default = []
 secure-storage = ["keyring"]
