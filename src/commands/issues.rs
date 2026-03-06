@@ -18,7 +18,7 @@ use crate::output::{
 use crate::pagination::{paginate_nodes, stream_nodes};
 use crate::priority::priority_to_string;
 use crate::text::truncate;
-use crate::vcs::{generate_branch_name, run_git_command};
+use crate::vcs::{generate_branch_name, git_branch_exists, run_git_command, validate_branch_name};
 use crate::AgentOptions;
 
 use super::templates;
@@ -1617,7 +1617,7 @@ async fn delete_issue(id: &str, force: bool, agent_opts: AgentOptions) -> Result
 // Git helper functions for start command
 
 fn branch_exists(branch: &str) -> bool {
-    run_git_command(&["rev-parse", "--verify", branch]).is_ok()
+    git_branch_exists(branch)
 }
 
 async fn start_issue(
@@ -1740,13 +1740,14 @@ async fn start_issue(
 
     // Optionally checkout a git branch
     if checkout {
-        let branch_name = custom_branch
-            .or(if linear_branch.is_empty() {
-                None
-            } else {
-                Some(linear_branch)
-            })
-            .unwrap_or_else(|| generate_branch_name(identifier, title));
+        let branch_name = if let Some(custom_branch) = custom_branch {
+            validate_branch_name(&custom_branch)?;
+            custom_branch
+        } else if !linear_branch.is_empty() && validate_branch_name(&linear_branch).is_ok() {
+            linear_branch
+        } else {
+            generate_branch_name(identifier, title)
+        };
 
         if !agent_opts.quiet {
             println!();

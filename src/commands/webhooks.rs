@@ -26,6 +26,9 @@ pub enum WebhookCommands {
     Get {
         /// Webhook ID
         id: String,
+        /// Show the full secret in output
+        #[arg(long)]
+        show_secret: bool,
     },
     /// Create a new webhook
     #[command(after_help = r#"EXAMPLES:
@@ -50,6 +53,9 @@ pub enum WebhookCommands {
         /// Webhook signing secret (auto-generated if not specified)
         #[arg(long)]
         secret: Option<String>,
+        /// Show the full secret in output
+        #[arg(long)]
+        show_secret: bool,
     },
     /// Update a webhook
     #[command(after_help = r#"EXAMPLES:
@@ -91,6 +97,9 @@ pub enum WebhookCommands {
     RotateSecret {
         /// Webhook ID
         id: String,
+        /// Show the full secret in output
+        #[arg(long)]
+        show_secret: bool,
     },
     /// Listen for webhook events locally
     #[command(after_help = r#"EXAMPLES:
@@ -104,6 +113,9 @@ Use a tunnel service (ngrok, cloudflare tunnel) and pass --url with your public 
         /// Port for local HTTP server
         #[arg(short, long, default_value = "9000")]
         port: u16,
+        /// Address to bind the local listener to
+        #[arg(long, default_value = "127.0.0.1")]
+        bind: String,
         /// Comma-separated resource types to subscribe to
         #[arg(long, value_delimiter = ',')]
         events: Vec<String>,
@@ -141,7 +153,7 @@ struct WebhookRow {
 pub async fn handle(cmd: WebhookCommands, output: &OutputOptions) -> Result<()> {
     match cmd {
         WebhookCommands::List => list_webhooks(output).await,
-        WebhookCommands::Get { id } => get_webhook(&id, output).await,
+        WebhookCommands::Get { id, show_secret } => get_webhook(&id, show_secret, output).await,
         WebhookCommands::Create {
             url,
             events,
@@ -149,7 +161,8 @@ pub async fn handle(cmd: WebhookCommands, output: &OutputOptions) -> Result<()> 
             all_teams,
             label,
             secret,
-        } => create_webhook(&url, events, team, all_teams, label, secret, output).await,
+            show_secret,
+        } => create_webhook(&url, events, team, all_teams, label, secret, show_secret, output).await,
         WebhookCommands::Update {
             id,
             url,
@@ -159,15 +172,16 @@ pub async fn handle(cmd: WebhookCommands, output: &OutputOptions) -> Result<()> 
             label,
         } => update_webhook(&id, url, events, enabled, disabled, label, output).await,
         WebhookCommands::Delete { id, force } => delete_webhook(&id, force, output).await,
-        WebhookCommands::RotateSecret { id } => rotate_secret(&id, output).await,
+        WebhookCommands::RotateSecret { id, show_secret } => rotate_secret(&id, show_secret, output).await,
         WebhookCommands::Listen {
             port,
+            bind,
             events,
             team,
             secret,
             url,
             json,
-        } => listen(port, events, team, secret, url, json, output).await,
+        } => listen(port, bind, events, team, secret, url, json, output).await,
     }
 }
 
@@ -254,7 +268,7 @@ async fn list_webhooks(output: &OutputOptions) -> Result<()> {
     Ok(())
 }
 
-async fn get_webhook(id: &str, output: &OutputOptions) -> Result<()> {
+async fn get_webhook(id: &str, show_secret: bool, output: &OutputOptions) -> Result<()> {
     let client = LinearClient::new()?;
 
     let query = r#"
@@ -276,7 +290,11 @@ async fn get_webhook(id: &str, output: &OutputOptions) -> Result<()> {
     }
 
     if output.is_json() || output.has_template() {
-        print_json(webhook, output)?;
+        let mut webhook = webhook.clone();
+        if !show_secret {
+            webhook["secret"] = json!("<redacted>");
+        }
+        print_json_owned(webhook, output)?;
         return Ok(());
     }
 
@@ -309,7 +327,11 @@ async fn get_webhook(id: &str, output: &OutputOptions) -> Result<()> {
 
     if let Some(secret) = &wh.secret {
         if !secret.is_empty() {
-            println!("Secret: {}...", &secret[..secret.len().min(8)]);
+            if show_secret {
+                println!("Secret: {}", secret);
+            } else {
+                println!("Secret: <redacted> (use --show-secret to reveal)");
+            }
         }
     }
 
@@ -334,6 +356,7 @@ async fn create_webhook(
     all_teams: bool,
     label: Option<String>,
     secret: Option<String>,
+    show_secret: bool,
     output: &OutputOptions,
 ) -> Result<()> {
     let client = LinearClient::new()?;
@@ -392,7 +415,11 @@ async fn create_webhook(
     if result["data"]["webhookCreate"]["success"].as_bool() == Some(true) {
         let webhook = &result["data"]["webhookCreate"]["webhook"];
         if output.is_json() || output.has_template() {
-            print_json(webhook, output)?;
+            let mut webhook = webhook.clone();
+            if !show_secret {
+                webhook["secret"] = json!("<redacted>");
+            }
+            print_json_owned(webhook, output)?;
             return Ok(());
         }
         println!(
@@ -411,7 +438,11 @@ async fn create_webhook(
         );
         if let Some(secret) = webhook["secret"].as_str() {
             if !secret.is_empty() {
-                println!("  Secret: {}", secret);
+                if show_secret {
+                    println!("  Secret: {}", secret);
+                } else {
+                    println!("  Secret: <redacted> (use --show-secret to reveal)");
+                }
             }
         }
     } else {
@@ -554,7 +585,7 @@ async fn delete_webhook(id: &str, force: bool, output: &OutputOptions) -> Result
     Ok(())
 }
 
-async fn rotate_secret(id: &str, output: &OutputOptions) -> Result<()> {
+async fn rotate_secret(id: &str, show_secret: bool, output: &OutputOptions) -> Result<()> {
     let client = LinearClient::new()?;
 
     let mutation = r#"
@@ -571,12 +602,20 @@ async fn rotate_secret(id: &str, output: &OutputOptions) -> Result<()> {
     if result["data"]["webhookRotateSecret"]["success"].as_bool() == Some(true) {
         let webhook = &result["data"]["webhookRotateSecret"]["webhook"];
         if output.is_json() || output.has_template() {
-            print_json(webhook, output)?;
+            let mut webhook = webhook.clone();
+            if !show_secret {
+                webhook["secret"] = json!("<redacted>");
+            }
+            print_json_owned(webhook, output)?;
             return Ok(());
         }
         println!("{} Secret rotated for webhook: {}", "+".green(), id);
         if let Some(secret) = webhook["secret"].as_str() {
-            println!("  New secret: {}", secret);
+            if show_secret {
+                println!("  New secret: {}", secret);
+            } else {
+                println!("  New secret: <redacted> (use --show-secret to reveal)");
+            }
         }
     } else {
         anyhow::bail!("Failed to rotate webhook secret");
@@ -603,6 +642,7 @@ fn verify_signature(secret: &str, body: &[u8], signature: &str) -> bool {
 #[allow(clippy::too_many_arguments)]
 async fn listen(
     port: u16,
+    bind: String,
     events: Vec<String>,
     team: Option<String>,
     secret: Option<String>,
@@ -684,6 +724,17 @@ async fn listen(
             .as_str()
             .map(|s| s.to_string())
     });
+    if webhook_secret.is_none() {
+        let delete_mutation = r#"
+            mutation($id: String!) {
+                webhookDelete(id: $id) { success }
+            }
+        "#;
+        let _ = client
+            .mutate(delete_mutation, Some(json!({ "id": webhook_id })))
+            .await;
+        anyhow::bail!("Webhook secret was not returned; refusing to start unsigned listener");
+    }
 
     println!(
         "{} Temporary webhook created: {}",
@@ -695,7 +746,8 @@ async fn listen(
     println!("  Press Ctrl+C to stop and clean up.\n");
 
     // Start the HTTP server
-    let listener = match tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await {
+    let listener_addr = format!("{}:{}", bind, port);
+    let listener = match tokio::net::TcpListener::bind(&listener_addr).await {
         Ok(l) => l,
         Err(e) => {
             // Clean up the webhook we just created before returning the error
@@ -708,7 +760,7 @@ async fn listen(
             let _ = client
                 .mutate(delete_mutation, Some(json!({ "id": webhook_id })))
                 .await;
-            return Err(e).context(format!("Failed to bind to port {}", port));
+            return Err(e).context(format!("Failed to bind to {}", listener_addr));
         }
     };
 
@@ -824,6 +876,7 @@ async fn handle_connection(
     let headers_str = String::from_utf8_lossy(&header_buf[..header_end]).to_string();
 
     // Parse Content-Length from headers
+    const MAX_WEBHOOK_BODY_BYTES: usize = 1024 * 1024;
     let content_length: usize = headers_str
         .lines()
         .find(|l| l.to_lowercase().starts_with("content-length:"))
@@ -831,9 +884,21 @@ async fn handle_connection(
         .and_then(|(_, v)| v.trim().parse().ok())
         .unwrap_or(0);
 
+    if content_length > MAX_WEBHOOK_BODY_BYTES {
+        let response = "HTTP/1.1 413 Payload Too Large\r\nContent-Length: 0\r\n\r\n";
+        stream.write_all(response.as_bytes()).await?;
+        return Ok(());
+    }
+
     // Collect body: bytes already read past headers + remaining
     let body_start = header_end + 4; // skip \r\n\r\n
     let already_read = header_len - body_start;
+    if already_read > MAX_WEBHOOK_BODY_BYTES {
+        let response = "HTTP/1.1 413 Payload Too Large\r\nContent-Length: 0\r\n\r\n";
+        stream.write_all(response.as_bytes()).await?;
+        return Ok(());
+    }
+
     let mut body_bytes = Vec::with_capacity(content_length.max(already_read));
     body_bytes.extend_from_slice(&header_buf[body_start..header_len]);
 
@@ -853,9 +918,19 @@ async fn handle_connection(
 
     let body = String::from_utf8_lossy(&body_bytes).to_string();
 
-    // Check it's a POST
-    if !headers_str.starts_with("POST") {
+    let request_line = headers_str.lines().next().unwrap_or("");
+    let mut request_parts = request_line.split_whitespace();
+    let method = request_parts.next().unwrap_or("");
+    let path = request_parts.next().unwrap_or("");
+
+    if method != "POST" {
         let response = "HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n";
+        stream.write_all(response.as_bytes()).await?;
+        return Ok(());
+    }
+
+    if !path.starts_with("/webhook") {
+        let response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
         stream.write_all(response.as_bytes()).await?;
         return Ok(());
     }

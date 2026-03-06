@@ -1216,13 +1216,32 @@ fn setup_pager() -> Option<PagerGuard> {
         return None;
     }
 
-    // Split pager command to support args (e.g. PAGER="less -FRX")
-    let mut parts = pager_cmd.split_whitespace();
-    let program = parts.next()?;
-    let args: Vec<&str> = parts.collect();
+    // Parse pager command and allow only well-known pager executables.
+    let (program, args) = {
+        let mut parts = pager_cmd.split_whitespace();
+        let program = parts.next()?.to_string();
+        let args: Vec<String> = parts.map(|part| part.to_string()).collect();
+        let basename = std::path::Path::new(&program)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(program.as_str());
+        let trusted = ["less", "more", "most", "bat", "cat"];
+        if trusted.contains(&basename) {
+            (program, args)
+        } else {
+            eprintln!(
+                "Ignoring untrusted PAGER '{}'; falling back to less",
+                pager_cmd
+            );
+            ("less".to_string(), Vec::new())
+        }
+    };
+    if program == "cat" {
+        return None;
+    }
 
     // Try to spawn pager with stdin piped
-    let mut child = match std::process::Command::new(program)
+    let mut child = match std::process::Command::new(&program)
         .args(&args)
         .stdin(std::process::Stdio::piped())
         .spawn()
@@ -1267,6 +1286,18 @@ impl Drop for PagerGuard {
         // Then wait for pager to finish
         let _ = self.child.wait();
     }
+}
+
+fn sanitize_completion_field(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| match ch {
+            '\r' | '\n' | '\t' => ' ',
+            _ => ch,
+        })
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 /// Handle the context command - detect current Linear issue from git branch
@@ -1653,7 +1684,11 @@ async fn complete_teams(cache: Option<&cache::Cache>, prefix: &str) -> Result<()
             || key.to_lowercase().starts_with(&prefix_lower)
             || name.to_lowercase().starts_with(&prefix_lower)
         {
-            println!("{}\t{}", key, name);
+            println!(
+                "{}\t{}",
+                sanitize_completion_field(key),
+                sanitize_completion_field(name)
+            );
         }
     }
     Ok(())
@@ -1675,7 +1710,11 @@ async fn complete_projects(cache: Option<&cache::Cache>, prefix: &str) -> Result
         let name = project["name"].as_str().unwrap_or("");
         let state = project["state"].as_str().unwrap_or("");
         if prefix.is_empty() || name.to_lowercase().starts_with(&prefix_lower) {
-            println!("{}\t{}", name, state);
+            println!(
+                "{}\t{}",
+                sanitize_completion_field(name),
+                sanitize_completion_field(state)
+            );
         }
     }
     Ok(())
@@ -1717,7 +1756,11 @@ async fn complete_issues(prefix: &str) -> Result<()> {
         let id = issue["identifier"].as_str().unwrap_or("");
         let title = issue["title"].as_str().unwrap_or("");
         if prefix.is_empty() || id.to_uppercase().starts_with(&prefix_upper) {
-            println!("{}\t{}", id, title);
+            println!(
+                "{}\t{}",
+                sanitize_completion_field(id),
+                sanitize_completion_field(title)
+            );
         }
     }
     Ok(())
@@ -1803,7 +1846,11 @@ async fn complete_statuses(
         let name = state["name"].as_str().unwrap_or("");
         let type_ = state["type"].as_str().unwrap_or("");
         if prefix.is_empty() || name.to_lowercase().starts_with(&prefix_lower) {
-            println!("{}\t{}", name, type_);
+            println!(
+                "{}\t{}",
+                sanitize_completion_field(name),
+                sanitize_completion_field(type_)
+            );
         }
     }
     Ok(())
@@ -1829,7 +1876,11 @@ async fn complete_users(cache: Option<&cache::Cache>, prefix: &str) -> Result<()
             || name.to_lowercase().starts_with(&prefix_lower)
             || email.to_lowercase().starts_with(&prefix_lower)
         {
-            println!("{}\t{}", display, name);
+            println!(
+                "{}\t{}",
+                sanitize_completion_field(display),
+                sanitize_completion_field(name)
+            );
         }
     }
     Ok(())
@@ -1851,7 +1902,11 @@ async fn complete_labels(cache: Option<&cache::Cache>, prefix: &str) -> Result<(
         let name = label["name"].as_str().unwrap_or("");
         let color = label["color"].as_str().unwrap_or("");
         if prefix.is_empty() || name.to_lowercase().starts_with(&prefix_lower) {
-            println!("{}\t{}", name, color);
+            println!(
+                "{}\t{}",
+                sanitize_completion_field(name),
+                sanitize_completion_field(color)
+            );
         }
     }
     Ok(())
@@ -1943,6 +1998,17 @@ const BASH_DYNAMIC_COMPLETIONS: &str = r#"# Dynamic completions for linear-cli (
 #   eval "$(linear-cli completions dynamic bash)"
 
 _linear_cli_dynamic() {
+    _linear_cli_collect() {
+        local type="$1"
+        shift
+        local line value
+        COMPREPLY=()
+        while IFS=$'\t' read -r value _; do
+            [[ -z "$value" ]] && continue
+            [[ "$value" == "$cur"* ]] && COMPREPLY+=("$value")
+        done < <(linear-cli _complete --type "$type" --prefix "$cur" "$@" 2>/dev/null)
+    }
+
     local cur prev
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
@@ -1959,32 +2025,27 @@ _linear_cli_dynamic() {
 
     case "$prev" in
         -t|--team)
-            local IFS=$'\n'
-            COMPREPLY=($(compgen -W "$(linear-cli _complete --type teams --prefix "$cur" 2>/dev/null | cut -f1)" -- "$cur"))
+            _linear_cli_collect teams
             return 0
             ;;
         -s|--status)
-            local team_arg=""
             if [[ -n "$team_val" ]]; then
-                team_arg="--team $team_val"
+                _linear_cli_collect statuses --team "$team_val"
+            else
+                _linear_cli_collect statuses
             fi
-            local IFS=$'\n'
-            COMPREPLY=($(compgen -W "$(linear-cli _complete --type statuses --prefix "$cur" $team_arg 2>/dev/null | cut -f1)" -- "$cur"))
             return 0
             ;;
         --project)
-            local IFS=$'\n'
-            COMPREPLY=($(compgen -W "$(linear-cli _complete --type projects --prefix "$cur" 2>/dev/null | cut -f1)" -- "$cur"))
+            _linear_cli_collect projects
             return 0
             ;;
         --label|-l)
-            local IFS=$'\n'
-            COMPREPLY=($(compgen -W "$(linear-cli _complete --type labels --prefix "$cur" 2>/dev/null | cut -f1)" -- "$cur"))
+            _linear_cli_collect labels
             return 0
             ;;
         --assignee|--user)
-            local IFS=$'\n'
-            COMPREPLY=($(compgen -W "$(linear-cli _complete --type users --prefix "$cur" 2>/dev/null | cut -f1)" -- "$cur"))
+            _linear_cli_collect users
             return 0
             ;;
     esac
@@ -1993,8 +2054,7 @@ _linear_cli_dynamic() {
     local subcmds_taking_issue="get update start close done archive unarchive comment link assign move transfer open"
     for subcmd in $subcmds_taking_issue; do
         if [[ "$prev" == "$subcmd" ]]; then
-            local IFS=$'\n'
-            COMPREPLY=($(compgen -W "$(linear-cli _complete --type issues --prefix "$cur" 2>/dev/null | cut -f1)" -- "$cur"))
+            _linear_cli_collect issues
             return 0
         fi
     done

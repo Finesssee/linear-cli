@@ -1,7 +1,8 @@
 use anyhow::{Context, Result};
 use futures::StreamExt;
 use reqwest::header::HeaderMap;
-use reqwest::{Client, StatusCode};
+use reqwest::redirect::Policy;
+use reqwest::{Client, StatusCode, Url};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,6 +17,7 @@ use crate::text::is_uuid;
 use std::sync::OnceLock;
 
 const LINEAR_API_URL: &str = "https://api.linear.app/graphql";
+const LINEAR_UPLOADS_HOST: &str = "uploads.linear.app";
 
 /// Configuration for generic ID resolution
 struct ResolverConfig<'a> {
@@ -133,6 +135,47 @@ fn http_error(status: StatusCode, headers: &HeaderMap, context: &str) -> CliErro
         )),
     };
     err.with_details(details)
+}
+
+pub fn parse_linear_upload_url(raw: &str) -> Result<Url> {
+    let url = Url::parse(raw).context("Failed to parse upload URL")?;
+
+    if url.scheme() != "https" {
+        anyhow::bail!("Invalid upload URL: expected https");
+    }
+    if url.host_str() != Some(LINEAR_UPLOADS_HOST) {
+        anyhow::bail!(
+            "Invalid upload URL: expected exact host '{}'",
+            LINEAR_UPLOADS_HOST
+        );
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        anyhow::bail!("Invalid upload URL: credentials are not allowed");
+    }
+    if let Some(port) = url.port() {
+        if port != 443 {
+            anyhow::bail!("Invalid upload URL: non-default ports are not allowed");
+        }
+    }
+
+    Ok(url)
+}
+
+fn upload_redirect_policy() -> Policy {
+    Policy::custom(|attempt| {
+        let url = attempt.url();
+        let is_allowed = url.scheme() == "https"
+            && url.host_str() == Some(LINEAR_UPLOADS_HOST)
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.port_or_known_default() == Some(443);
+
+        if is_allowed {
+            attempt.follow()
+        } else {
+            attempt.stop()
+        }
+    })
 }
 
 /// Resolves a team key (like "SCW") or name to a team UUID.
@@ -618,10 +661,15 @@ impl LinearClient {
         url: &str,
         writer: &mut impl std::io::Write,
     ) -> Result<u64> {
+        let url = parse_linear_upload_url(url)?;
         let auth_header = self.ensure_fresh_auth().await?;
+        let upload_client = Client::builder()
+            .timeout(Duration::from_secs(30))
+            .redirect(upload_redirect_policy())
+            .build()
+            .context("Failed to build upload client")?;
 
-        let response = self
-            .client
+        let response = upload_client
             .get(url)
             .header("Authorization", &auth_header)
             .send()
@@ -699,7 +747,7 @@ impl LinearClient {
                 let new_tokens = crate::oauth::refresh_tokens(client_id, refresh_token).await?;
 
                 // Persist the new tokens
-                let scopes = if let Ok(Some(existing)) = config::get_oauth_config(profile) {
+                let scopes = if let Ok(Some(existing)) = config::get_oauth_metadata(profile) {
                     existing.scopes
                 } else {
                     vec![]
@@ -713,7 +761,17 @@ impl LinearClient {
                     token_type: new_tokens.token_type.clone(),
                     scopes,
                 };
-                if let Err(e) = config::save_oauth_config(profile, &oauth_config) {
+                #[cfg(feature = "secure-storage")]
+                let persist_result = if config::oauth_uses_secure_storage(profile).unwrap_or(false) {
+                    config::save_oauth_config_secure(profile, &oauth_config)
+                } else {
+                    config::save_oauth_config(profile, &oauth_config)
+                };
+
+                #[cfg(not(feature = "secure-storage"))]
+                let persist_result = config::save_oauth_config(profile, &oauth_config);
+
+                if let Err(e) = persist_result {
                     eprintln!("Warning: Failed to persist refreshed OAuth tokens: {}", e);
                 }
 

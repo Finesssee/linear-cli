@@ -2,7 +2,25 @@ use anyhow::{Context, Result};
 use clap::{Subcommand, ValueHint};
 use std::io::{self, Write};
 
-use crate::api::LinearClient;
+use crate::api::{parse_linear_upload_url, LinearClient};
+
+#[cfg(unix)]
+fn create_private_file(path: &str) -> Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    Ok(std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)
+        .with_context(|| format!("Failed to create file: {}", path))?)
+}
+
+#[cfg(not(unix))]
+fn create_private_file(path: &str) -> Result<std::fs::File> {
+    Ok(std::fs::File::create(path).with_context(|| format!("Failed to create file: {}", path))?)
+}
 
 #[derive(Subcommand)]
 pub enum UploadCommands {
@@ -25,19 +43,13 @@ pub async fn handle(cmd: UploadCommands) -> Result<()> {
 }
 
 async fn fetch_upload(url: &str, file: Option<String>) -> Result<()> {
-    // Validate URL is a Linear upload URL
-    if !url.starts_with("https://uploads.linear.app/") {
-        anyhow::bail!(
-            "Invalid URL: expected Linear upload URL starting with 'https://uploads.linear.app/'"
-        );
-    }
+    parse_linear_upload_url(url)?;
 
     let client = LinearClient::new()?;
 
     if let Some(file_path) = file {
         // Stream directly to file
-        let mut file = std::fs::File::create(&file_path)
-            .with_context(|| format!("Failed to create file: {}", file_path))?;
+        let mut file = create_private_file(&file_path)?;
         let bytes_written = client
             .fetch_to_writer(url, &mut file)
             .await

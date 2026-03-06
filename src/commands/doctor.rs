@@ -18,11 +18,33 @@ pub async fn run(output: &OutputOptions, check_api: bool, fix: bool) -> Result<(
         .filter(|p| !p.is_empty());
     let cache_dir = cache::cache_dir_path()?;
 
-    let configured = profile
+    let config_file_configured = profile
         .as_ref()
         .and_then(|p| config_data.workspaces.get(p))
         .map(|w| !w.api_key.is_empty())
         .unwrap_or(false);
+
+    #[cfg(feature = "secure-storage")]
+    let keyring_available = crate::keyring::is_available();
+    #[cfg(not(feature = "secure-storage"))]
+    let keyring_available = false;
+
+    #[cfg(feature = "secure-storage")]
+    let oauth_keyring_configured = profile
+        .as_ref()
+        .and_then(|p| crate::keyring::get_oauth_tokens(p).ok())
+        .flatten()
+        .is_some();
+    #[cfg(not(feature = "secure-storage"))]
+    let oauth_keyring_configured = false;
+
+    let oauth_configured = profile
+        .as_ref()
+        .and_then(|p| config::get_oauth_metadata(p).ok())
+        .flatten()
+        .is_some();
+
+    let configured = config_file_configured || oauth_configured || oauth_keyring_configured;
 
     let mut api_ok = None;
     let mut api_error = None;
@@ -141,6 +163,9 @@ pub async fn run(output: &OutputOptions, check_api: bool, fix: bool) -> Result<(
                 "config_path": config_path.to_string_lossy(),
                 "profile": profile,
                 "configured": configured,
+                "keyring_available": keyring_available,
+                "oauth_configured": oauth_configured,
+                "oauth_keyring_configured": oauth_keyring_configured,
                 "env_api_key": env_key.is_some(),
                 "env_profile": env_profile,
                 "cache_dir": cache_dir.to_string_lossy(),
@@ -156,6 +181,18 @@ pub async fn run(output: &OutputOptions, check_api: bool, fix: bool) -> Result<(
     println!("Config path: {}", config_path.display());
     println!("Profile: {}", profile.unwrap_or_else(|| "none".to_string()));
     println!("Configured: {}", if configured { "yes" } else { "no" });
+    println!(
+        "Keyring available: {}",
+        if keyring_available { "yes" } else { "no" }
+    );
+    println!(
+        "OAuth configured: {}",
+        if oauth_configured { "yes" } else { "no" }
+    );
+    println!(
+        "OAuth keyring configured: {}",
+        if oauth_keyring_configured { "yes" } else { "no" }
+    );
     println!(
         "Env API key override: {}",
         if env_key.is_some() { "yes" } else { "no" }

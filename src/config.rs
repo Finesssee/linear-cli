@@ -406,6 +406,62 @@ pub fn save_oauth_config(profile: &str, oauth_config: &OAuthConfig) -> Result<()
     Ok(())
 }
 
+fn oauth_config_has_secrets(oauth_config: &OAuthConfig) -> bool {
+    !oauth_config.access_token.is_empty()
+        || oauth_config
+            .refresh_token
+            .as_ref()
+            .map(|token| !token.is_empty())
+            .unwrap_or(false)
+}
+
+fn oauth_metadata_only(oauth_config: &OAuthConfig) -> OAuthConfig {
+    OAuthConfig {
+        client_id: oauth_config.client_id.clone(),
+        access_token: String::new(),
+        refresh_token: None,
+        expires_at: oauth_config.expires_at,
+        token_type: oauth_config.token_type.clone(),
+        scopes: oauth_config.scopes.clone(),
+    }
+}
+
+/// Get OAuth metadata for a profile from config, even if secrets are stored elsewhere.
+pub fn get_oauth_metadata(profile: &str) -> Result<Option<OAuthConfig>> {
+    let config = load_config()?;
+    Ok(config.workspaces.get(profile).and_then(|w| w.oauth.clone()))
+}
+
+#[cfg(feature = "secure-storage")]
+pub fn oauth_uses_secure_storage(profile: &str) -> Result<bool> {
+    if crate::keyring::get_oauth_tokens(profile)?.is_some() {
+        return Ok(true);
+    }
+
+    Ok(get_oauth_metadata(profile)?
+        .map(|oauth| !oauth.client_id.is_empty() && !oauth_config_has_secrets(&oauth))
+        .unwrap_or(false))
+}
+
+#[cfg(feature = "secure-storage")]
+pub fn save_oauth_config_secure(profile: &str, oauth_config: &OAuthConfig) -> Result<()> {
+    let json = serde_json::to_string(oauth_config)?;
+    crate::keyring::set_oauth_tokens(profile, &json)?;
+
+    let stored_json = crate::keyring::get_oauth_tokens(profile)?
+        .context("OAuth tokens were written to keyring but could not be read back")?;
+    let stored_oauth: OAuthConfig = serde_json::from_str(&stored_json)
+        .context("OAuth token payload read back from keyring was invalid")?;
+
+    if stored_oauth.access_token != oauth_config.access_token
+        || stored_oauth.refresh_token != oauth_config.refresh_token
+    {
+        anyhow::bail!("OAuth tokens stored in keyring could not be verified after saving");
+    }
+
+    save_oauth_config(profile, &oauth_metadata_only(oauth_config))
+}
+
 /// Get OAuth config for a profile
 pub fn get_oauth_config(profile: &str) -> Result<Option<OAuthConfig>> {
     // Try keyring first if feature enabled
@@ -419,8 +475,7 @@ pub fn get_oauth_config(profile: &str) -> Result<Option<OAuthConfig>> {
     }
 
     // Fall back to config file
-    let config = load_config()?;
-    Ok(config.workspaces.get(profile).and_then(|w| w.oauth.clone()))
+    Ok(get_oauth_metadata(profile)?.filter(oauth_config_has_secrets))
 }
 
 /// Clear OAuth config for a profile

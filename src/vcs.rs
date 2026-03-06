@@ -12,6 +12,41 @@ pub fn run_git_command(args: &[&str]) -> Result<String> {
     }
 }
 
+pub fn validate_branch_name(branch: &str) -> Result<()> {
+    if branch.trim().is_empty() {
+        anyhow::bail!("Branch name cannot be empty");
+    }
+    if branch.starts_with('-') {
+        anyhow::bail!("Branch name cannot start with '-'");
+    }
+    if branch == "@" || branch.contains("@{") {
+        anyhow::bail!("Branch name contains invalid ref syntax");
+    }
+
+    let output = Command::new("git")
+        .args(["check-ref-format", "--branch", branch])
+        .output()?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("Invalid branch name '{}': {}", branch, stderr.trim());
+    }
+}
+
+pub fn git_branch_exists(branch: &str) -> bool {
+    if validate_branch_name(branch).is_err() {
+        return false;
+    }
+
+    let ref_name = format!("refs/heads/{}", branch);
+    Command::new("git")
+        .args(["show-ref", "--verify", "--quiet", &ref_name])
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
 pub fn generate_branch_name(identifier: &str, title: &str) -> String {
     // Convert title to kebab-case for branch name
     let slug: String = title

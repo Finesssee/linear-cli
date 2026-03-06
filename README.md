@@ -414,10 +414,13 @@ Browser-based Authorization Code + PKCE flow with automatic token refresh.
 
 ```bash
 linear-cli auth oauth          # Opens browser for authorization
+linear-cli auth oauth --secure # Store OAuth tokens in OS keyring (best on official release builds)
 linear-cli auth status         # Show auth type, token expiry
 linear-cli auth revoke         # Revoke OAuth tokens
 linear-cli auth logout         # Remove stored credentials
 ```
+
+> On macOS, `--secure` works best with an official signed release binary. Locally built or frequently rebuilt CLI binaries can trigger repeated Keychain prompts and may fail keychain readback verification. If that happens, use plain `linear-cli auth oauth` or `LINEAR_API_KEY` instead.
 
 **Auth priority:** `LINEAR_API_KEY` env var > OS keyring > OAuth tokens > config file API key.
 

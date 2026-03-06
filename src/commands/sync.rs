@@ -38,7 +38,8 @@ pub enum SyncCommands {
     #[command(after_help = r#"EXAMPLES:
     linear sync push -t ENG                    # Create projects for all folders
     linear sy push -t ENG --dry-run            # Preview without creating
-    linear sy push -t ENG -o proj1,proj2       # Only specific folders"#)]
+    linear sy push -t ENG -o proj1,proj2       # Only specific folders
+    linear sy push -t ENG --include-local-path # Include local absolute path in description"#)]
     Push {
         /// Directory to scan for local projects (default: ~/code)
         #[arg(short, long)]
@@ -52,6 +53,9 @@ pub enum SyncCommands {
         /// Dry run - show what would be created without creating
         #[arg(long)]
         dry_run: bool,
+        /// Include the local absolute path in the created project description
+        #[arg(long)]
+        include_local_path: bool,
     },
 }
 
@@ -98,9 +102,10 @@ pub async fn handle(cmd: SyncCommands, output: &OutputOptions) -> Result<()> {
             team,
             only,
             dry_run,
+            include_local_path,
         } => {
             let dry_run = dry_run || output.dry_run;
-            push_command(directory, team, only, dry_run, &output.cache).await
+            push_command(directory, team, only, dry_run, include_local_path, &output.cache).await
         }
     }
 }
@@ -504,6 +509,7 @@ async fn push_command(
     team: String,
     only: Option<String>,
     dry_run: bool,
+    include_local_path: bool,
     cache_opts: &crate::cache::CacheOptions,
 ) -> Result<()> {
     let dir = directory.unwrap_or_else(get_default_code_dir);
@@ -585,7 +591,15 @@ async fn push_command(
             continue;
         }
 
-        match create_linear_project(&client, &project.name, &team_id, &project.path).await {
+        match create_linear_project(
+            &client,
+            &project.name,
+            &team_id,
+            &project.path,
+            include_local_path,
+        )
+        .await
+        {
             Ok(url) => {
                 println!("{}", "[created]".green());
                 if let Some(url) = url {
@@ -625,8 +639,13 @@ async fn create_linear_project(
     name: &str,
     team: &str,
     local_path: &str,
+    include_local_path: bool,
 ) -> Result<Option<String>> {
-    let description = format!("Local project synced from: {}", local_path);
+    let description = if include_local_path {
+        format!("Local project synced from: {}", local_path)
+    } else {
+        "Local project synced from a local workspace".to_string()
+    };
 
     let input = json!({
         "name": name,

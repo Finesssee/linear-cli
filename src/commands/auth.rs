@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Subcommand;
 use dialoguer::{Confirm, Password};
 use serde_json::json;
@@ -108,6 +108,11 @@ async fn login(
     #[cfg(feature = "secure-storage")]
     if secure {
         crate::keyring::set_key(&profile, &key)?;
+        let saved = crate::keyring::get_key(&profile)?
+            .context("API key was written to keyring but could not be read back")?;
+        if saved != key {
+            anyhow::bail!("API key stored in keyring could not be verified after saving");
+        }
 
         if output.is_json() || output.has_template() {
             print_json_owned(
@@ -168,8 +173,10 @@ async fn logout(force: bool, output: &OutputOptions) -> Result<()> {
     #[cfg(feature = "secure-storage")]
     {
         let _ = crate::keyring::delete_key(&profile); // Ignore errors (may not exist)
+        let _ = crate::keyring::delete_oauth_tokens(&profile); // Ignore errors (may not exist)
     }
 
+    config::clear_oauth_config(&profile)?;
     config::workspace_remove(&profile)?;
 
     if output.is_json() || output.has_template() {
@@ -197,7 +204,7 @@ async fn status(validate: bool, output: &OutputOptions) -> Result<()> {
         .ok()
         .filter(|p| !p.is_empty());
 
-    let configured = profile
+    let config_file_configured = profile
         .as_ref()
         .and_then(|p| config_data.workspaces.get(p))
         .map(|w| !w.api_key.is_empty())
@@ -205,26 +212,42 @@ async fn status(validate: bool, output: &OutputOptions) -> Result<()> {
 
     // Check keyring storage
     #[cfg(feature = "secure-storage")]
-    let keyring_configured = profile
+    let api_key_keyring_configured = profile
         .as_ref()
         .and_then(|p| crate::keyring::get_key(p).ok())
         .flatten()
         .is_some();
     #[cfg(not(feature = "secure-storage"))]
-    let keyring_configured = false;
+    let api_key_keyring_configured = false;
+
+    #[cfg(feature = "secure-storage")]
+    let oauth_keyring_configured = profile
+        .as_ref()
+        .and_then(|p| crate::keyring::get_oauth_tokens(p).ok())
+        .flatten()
+        .is_some();
+    #[cfg(not(feature = "secure-storage"))]
+    let oauth_keyring_configured = false;
 
     #[cfg(feature = "secure-storage")]
     let keyring_available = crate::keyring::is_available();
     #[cfg(not(feature = "secure-storage"))]
     let keyring_available = false;
 
+    let keyring_configured = api_key_keyring_configured || oauth_keyring_configured;
+
     // Check OAuth config
+    let oauth_metadata = profile
+        .as_ref()
+        .and_then(|p| config::get_oauth_metadata(p).ok())
+        .flatten();
+    let oauth_configured = oauth_metadata.is_some();
     let oauth_config = profile
         .as_ref()
         .and_then(|p| config::get_oauth_config(p).ok())
         .flatten();
-    let oauth_configured = oauth_config.is_some();
     let auth_type = if oauth_configured { "oauth" } else { "api_key" };
+    let configured = config_file_configured || keyring_configured || oauth_configured;
 
     let mut validated = None;
     if validate {
@@ -271,11 +294,12 @@ async fn status(validate: bool, output: &OutputOptions) -> Result<()> {
                 "profile": profile,
                 "configured": configured,
                 "keyring_configured": keyring_configured,
+                "oauth_keyring_configured": oauth_keyring_configured,
                 "keyring_available": keyring_available,
                 "auth_type": auth_type,
                 "oauth_configured": oauth_configured,
-                "oauth_scopes": oauth_config.as_ref().map(|o| &o.scopes),
-                "oauth_expires_at": oauth_config.as_ref().and_then(|o| o.expires_at),
+                "oauth_scopes": oauth_metadata.as_ref().map(|o| &o.scopes),
+                "oauth_expires_at": oauth_metadata.as_ref().and_then(|o| o.expires_at),
                 "env_api_key": env_key.is_some(),
                 "env_profile": env_profile,
                 "validated": validated,
@@ -296,6 +320,10 @@ async fn status(validate: bool, output: &OutputOptions) -> Result<()> {
         if keyring_available { "yes" } else { "no" }
     );
     println!(
+        "OAuth keyring: {}",
+        if oauth_keyring_configured { "yes" } else { "no" }
+    );
+    println!(
         "Env API key override: {}",
         if env_key.is_some() { "yes" } else { "no" }
     );
@@ -303,7 +331,7 @@ async fn status(validate: bool, output: &OutputOptions) -> Result<()> {
         println!("Validated: {}", if validated { "yes" } else { "no" });
     }
     println!("Auth type: {}", auth_type);
-    if let Some(ref oauth) = oauth_config {
+    if let Some(ref oauth) = oauth_metadata {
         println!("OAuth scopes: {:?}", oauth.scopes);
         if let Some(expires) = oauth.expires_at {
             let dt = chrono::DateTime::from_timestamp(expires, 0)
@@ -503,18 +531,9 @@ async fn oauth_login(
 
     #[cfg(feature = "secure-storage")]
     if secure {
-        let json = serde_json::to_string(&oauth_config)?;
-        crate::keyring::set_oauth_tokens(&profile, &json)?;
-        // Save only metadata in config (no secrets)
-        let metadata_only = config::OAuthConfig {
-            client_id: oauth_config.client_id.clone(),
-            access_token: String::new(),
-            refresh_token: None,
-            expires_at: oauth_config.expires_at,
-            token_type: oauth_config.token_type.clone(),
-            scopes: oauth_config.scopes.clone(),
-        };
-        config::save_oauth_config(&profile, &metadata_only)?;
+        config::save_oauth_config_secure(&profile, &oauth_config).context(
+            "Secure OAuth storage failed. On macOS, locally built or unsigned binaries may not be able to read back Keychain items. Try the official signed release or fall back to plain `linear-cli auth oauth`.",
+        )?;
 
         if output.is_json() || output.has_template() {
             print_json_owned(

@@ -51,6 +51,15 @@ fn base64_url_encode(data: &[u8]) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(data)
 }
 
+fn escape_html(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
 /// Build the authorization URL for Linear OAuth
 pub fn build_authorize_url(
     client_id: &str,
@@ -133,25 +142,6 @@ pub async fn wait_for_callback(port: u16, expected_state: &str) -> Result<String
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
 
-    // Check for error
-    if let Some(error) = params.get("error") {
-        let desc = params
-            .get("error_description")
-            .cloned()
-            .unwrap_or_default();
-        // Send error response to browser
-        let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
-             <html><body><h2>Authentication Failed</h2>\
-             <p>{}: {}</p>\
-             <p>You can close this window.</p></body></html>",
-            error, desc
-        );
-        let mut writer = &std_stream;
-        let _ = writer.write_all(response.as_bytes());
-        anyhow::bail!("OAuth error: {} - {}", error, desc);
-    }
-
     // Validate state
     let state = params
         .get("state")
@@ -163,6 +153,25 @@ pub async fn wait_for_callback(port: u16, expected_state: &str) -> Result<String
         let mut writer = &std_stream;
         let _ = writer.write_all(response.as_bytes());
         anyhow::bail!("OAuth state mismatch - possible CSRF attack");
+    }
+
+    // Check for error only after state validation and escape it before reflecting to the browser
+    if let Some(error) = params.get("error") {
+        let desc = params
+            .get("error_description")
+            .cloned()
+            .unwrap_or_default();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
+             <html><body><h2>Authentication Failed</h2>\
+             <p>{}: {}</p>\
+             <p>You can close this window.</p></body></html>",
+            escape_html(error),
+            escape_html(&desc)
+        );
+        let mut writer = &std_stream;
+        let _ = writer.write_all(response.as_bytes());
+        anyhow::bail!("OAuth error: {} - {}", error, desc);
     }
 
     let code = params

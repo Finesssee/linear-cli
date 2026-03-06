@@ -8,7 +8,7 @@ use std::process::Command;
 use crate::api::LinearClient;
 use crate::display_options;
 use crate::text::truncate;
-use crate::vcs::{generate_branch_name, run_git_command};
+use crate::vcs::{generate_branch_name, git_branch_exists, run_git_command, validate_branch_name};
 
 /// Version control system type
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -238,8 +238,11 @@ fn run_jj_command(args: &[&str]) -> Result<String> {
 
 fn branch_exists(branch: &str, vcs: Vcs) -> bool {
     match vcs {
-        Vcs::Git => run_git_command(&["rev-parse", "--verify", branch]).is_ok(),
+        Vcs::Git => git_branch_exists(branch),
         Vcs::Jj => {
+            if validate_branch_name(branch).is_err() {
+                return false;
+            }
             // In jj, check if bookmark exists
             run_jj_command(&["bookmark", "list", branch])
                 .is_ok_and(|output| output.lines().any(|line| line.starts_with(branch)))
@@ -268,14 +271,14 @@ fn generate_jj_description(identifier: &str, title: &str, url: &str) -> String {
 async fn checkout_issue(issue_id: &str, custom_branch: Option<String>, vcs: Vcs) -> Result<()> {
     let (identifier, title, linear_branch, url) = get_issue_info(issue_id).await?;
     let title_width = display_options().max_width(50);
-
-    let branch_name = custom_branch
-        .or(if linear_branch.is_empty() {
-            None
-        } else {
-            Some(linear_branch)
-        })
-        .unwrap_or_else(|| generate_branch_name(&identifier, &title));
+    let branch_name = if let Some(custom_branch) = custom_branch {
+        validate_branch_name(&custom_branch)?;
+        custom_branch
+    } else if !linear_branch.is_empty() && validate_branch_name(&linear_branch).is_ok() {
+        linear_branch
+    } else {
+        generate_branch_name(&identifier, &title)
+    };
 
     println!(
         "{} {} {}",
@@ -375,13 +378,14 @@ async fn create_branch(issue_id: &str, custom_branch: Option<String>, vcs: Vcs) 
     let (identifier, title, linear_branch, url) = get_issue_info(issue_id).await?;
     let title_width = display_options().max_width(50);
 
-    let branch_name = custom_branch
-        .or(if linear_branch.is_empty() {
-            None
-        } else {
-            Some(linear_branch)
-        })
-        .unwrap_or_else(|| generate_branch_name(&identifier, &title));
+    let branch_name = if let Some(custom_branch) = custom_branch {
+        validate_branch_name(&custom_branch)?;
+        custom_branch
+    } else if !linear_branch.is_empty() && validate_branch_name(&linear_branch).is_ok() {
+        linear_branch
+    } else {
+        generate_branch_name(&identifier, &title)
+    };
 
     println!(
         "{} {} {}",

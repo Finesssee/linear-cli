@@ -2,12 +2,59 @@ use anyhow::Result;
 use clap::{Subcommand, ValueHint};
 use csv::Writer;
 use serde_json::json;
+use std::borrow::Cow;
 use std::io::Write;
 
 use crate::api::LinearClient;
 use crate::output::OutputOptions;
 use crate::pagination::{paginate_nodes, stream_nodes, PaginationOptions};
 use colored::Colorize;
+
+#[cfg(unix)]
+fn create_private_file(path: &str) -> Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    Ok(std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)?)
+}
+
+#[cfg(not(unix))]
+fn create_private_file(path: &str) -> Result<std::fs::File> {
+    Ok(std::fs::File::create(path)?)
+}
+
+#[cfg(unix)]
+fn write_private_string(path: &str, contents: &str) -> Result<()> {
+    use std::io::Write as _;
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)?;
+    file.write_all(contents.as_bytes())?;
+    file.flush()?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn write_private_string(path: &str, contents: &str) -> Result<()> {
+    std::fs::write(path, contents)?;
+    Ok(())
+}
+
+fn sanitize_csv_cell(value: &str) -> Cow<'_, str> {
+    match value.chars().next() {
+        Some('=' | '+' | '-' | '@' | '\t' | '\r') => Cow::Owned(format!("'{}", value)),
+        _ => Cow::Borrowed(value),
+    }
+}
 
 #[derive(Subcommand, Debug)]
 pub enum ExportCommands {
@@ -170,7 +217,7 @@ async fn export_csv(
 
     let wtr: Rc<RefCell<Writer<Box<dyn Write>>>> = if let Some(ref path) = file {
         Rc::new(RefCell::new(Writer::from_writer(Box::new(
-            std::fs::File::create(path)?,
+            create_private_file(path)?,
         ))))
     } else {
         Rc::new(RefCell::new(Writer::from_writer(Box::new(
@@ -216,17 +263,17 @@ async fn export_csv(
                         .unwrap_or_default();
 
                     writer.write_record([
-                        issue["identifier"].as_str().unwrap_or(""),
-                        issue["title"].as_str().unwrap_or(""),
-                        issue["state"]["name"].as_str().unwrap_or(""),
+                        sanitize_csv_cell(issue["identifier"].as_str().unwrap_or("")).as_ref(),
+                        sanitize_csv_cell(issue["title"].as_str().unwrap_or("")).as_ref(),
+                        sanitize_csv_cell(issue["state"]["name"].as_str().unwrap_or("")).as_ref(),
                         &issue["priority"].as_i64().unwrap_or(0).to_string(),
                         &issue["estimate"].as_f64().unwrap_or(0.0).to_string(),
-                        issue["dueDate"].as_str().unwrap_or(""),
-                        issue["assignee"]["name"].as_str().unwrap_or(""),
-                        issue["team"]["key"].as_str().unwrap_or(""),
-                        issue["project"]["name"].as_str().unwrap_or(""),
-                        issue["cycle"]["name"].as_str().unwrap_or(""),
-                        &labels.join("; "),
+                        sanitize_csv_cell(issue["dueDate"].as_str().unwrap_or("")).as_ref(),
+                        sanitize_csv_cell(issue["assignee"]["name"].as_str().unwrap_or("")).as_ref(),
+                        sanitize_csv_cell(issue["team"]["key"].as_str().unwrap_or("")).as_ref(),
+                        sanitize_csv_cell(issue["project"]["name"].as_str().unwrap_or("")).as_ref(),
+                        sanitize_csv_cell(issue["cycle"]["name"].as_str().unwrap_or("")).as_ref(),
+                        sanitize_csv_cell(&labels.join("; ")).as_ref(),
                         &issue["createdAt"]
                             .as_str()
                             .unwrap_or("")
@@ -317,7 +364,7 @@ async fn export_markdown(
     .await?;
 
     let mut output: Box<dyn Write> = if let Some(ref path) = file {
-        Box::new(std::fs::File::create(path)?)
+        Box::new(create_private_file(path)?)
     } else {
         Box::new(std::io::stdout())
     };
@@ -485,7 +532,7 @@ async fn export_json(
     };
 
     if let Some(ref path) = file {
-        std::fs::write(path, &json_output)?;
+        write_private_string(path, &json_output)?;
         eprintln!("Exported {} issues to {}", flattened.len(), path);
     } else {
         println!("{}", json_output);
@@ -547,7 +594,7 @@ async fn export_projects_csv(file: Option<String>, include_archived: bool) -> Re
     .await?;
 
     let mut wtr: Writer<Box<dyn Write>> = if let Some(ref path) = file {
-        Writer::from_writer(Box::new(std::fs::File::create(path)?))
+        Writer::from_writer(Box::new(create_private_file(path)?))
     } else {
         Writer::from_writer(Box::new(std::io::stdout()))
     };
@@ -584,15 +631,15 @@ async fn export_projects_csv(file: Option<String>, include_archived: bool) -> Re
             .unwrap_or_default();
 
         wtr.write_record([
-            project["name"].as_str().unwrap_or(""),
-            project["state"].as_str().unwrap_or(""),
+            sanitize_csv_cell(project["name"].as_str().unwrap_or("")).as_ref(),
+            sanitize_csv_cell(project["state"].as_str().unwrap_or("")).as_ref(),
             &project["priority"].as_i64().unwrap_or(0).to_string(),
-            &progress,
-            project["startDate"].as_str().unwrap_or(""),
-            project["targetDate"].as_str().unwrap_or(""),
-            project["lead"]["name"].as_str().unwrap_or(""),
-            &teams.join("; "),
-            &members.join("; "),
+            sanitize_csv_cell(&progress).as_ref(),
+            sanitize_csv_cell(project["startDate"].as_str().unwrap_or("")).as_ref(),
+            sanitize_csv_cell(project["targetDate"].as_str().unwrap_or("")).as_ref(),
+            sanitize_csv_cell(project["lead"]["name"].as_str().unwrap_or("")).as_ref(),
+            sanitize_csv_cell(&teams.join("; ")).as_ref(),
+            sanitize_csv_cell(&members.join("; ")).as_ref(),
             &project["createdAt"]
                 .as_str()
                 .unwrap_or("")
@@ -605,7 +652,7 @@ async fn export_projects_csv(file: Option<String>, include_archived: bool) -> Re
                 .chars()
                 .take(10)
                 .collect::<String>(),
-            project["url"].as_str().unwrap_or(""),
+            sanitize_csv_cell(project["url"].as_str().unwrap_or("")).as_ref(),
         ])?;
     }
 
