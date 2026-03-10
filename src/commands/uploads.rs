@@ -8,13 +8,13 @@ use crate::api::{parse_linear_upload_url, LinearClient};
 fn create_private_file(path: &str) -> Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
 
-    Ok(std::fs::OpenOptions::new()
+    std::fs::OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(true)
         .mode(0o600)
         .open(path)
-        .with_context(|| format!("Failed to create file: {}", path))?)
+        .with_context(|| format!("Failed to create file: {}", path))
 }
 
 #[cfg(not(unix))]
