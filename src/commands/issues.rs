@@ -306,10 +306,22 @@ pub async fn handle(
             group_by,
             count_only,
         } => {
-            let assignee = if mine { Some("me".to_string()) } else { assignee };
-            list_issues(team, state, assignee, project, label, view, since, archived, group_by, count_only, output, agent_opts).await
+            let assignee = if mine {
+                Some("me".to_string())
+            } else {
+                assignee
+            };
+            list_issues(
+                team, state, assignee, project, label, view, since, archived, group_by, count_only,
+                output, agent_opts,
+            )
+            .await
         }
-        IssueCommands::Get { ids, history, comments } => {
+        IssueCommands::Get {
+            ids,
+            history,
+            comments,
+        } => {
             // Support reading from stdin if no IDs provided or if "-" is passed
             let final_ids = read_ids_from_stdin(ids);
             if final_ids.is_empty() {
@@ -507,8 +519,12 @@ async fn list_issues(
 
     // Parse --since date
     let since_date = if let Some(ref since_str) = since {
-        let date = crate::dates::parse_due_date(since_str)
-            .ok_or_else(|| anyhow::anyhow!("Invalid --since date: '{}'. Use today, -7d, 2024-01-15, etc.", since_str))?;
+        let date = crate::dates::parse_due_date(since_str).ok_or_else(|| {
+            anyhow::anyhow!(
+                "Invalid --since date: '{}'. Use today, -7d, 2024-01-15, etc.",
+                since_str
+            )
+        })?;
         Some(format!("{}T00:00:00.000Z", date))
     } else {
         None
@@ -655,18 +671,30 @@ async fn list_issues(
     if let Some(ref group_field) = group_by {
         let key_fn: Box<dyn Fn(&serde_json::Value) -> String> = match group_field.as_str() {
             "state" | "status" => Box::new(|issue: &serde_json::Value| {
-                issue["state"]["name"].as_str().unwrap_or("Unknown").to_string()
+                issue["state"]["name"]
+                    .as_str()
+                    .unwrap_or("Unknown")
+                    .to_string()
             }),
-            "priority" => Box::new(|issue: &serde_json::Value| {
-                priority_to_string(issue["priority"].as_i64())
-            }),
+            "priority" => {
+                Box::new(|issue: &serde_json::Value| priority_to_string(issue["priority"].as_i64()))
+            }
             "assignee" => Box::new(|issue: &serde_json::Value| {
-                issue["assignee"]["name"].as_str().unwrap_or("Unassigned").to_string()
+                issue["assignee"]["name"]
+                    .as_str()
+                    .unwrap_or("Unassigned")
+                    .to_string()
             }),
             "project" => Box::new(|issue: &serde_json::Value| {
-                issue["project"]["name"].as_str().unwrap_or("No Project").to_string()
+                issue["project"]["name"]
+                    .as_str()
+                    .unwrap_or("No Project")
+                    .to_string()
             }),
-            other => anyhow::bail!("Unknown --group-by field: '{}'. Use state, priority, assignee, or project.", other),
+            other => anyhow::bail!(
+                "Unknown --group-by field: '{}'. Use state, priority, assignee, or project.",
+                other
+            ),
         };
 
         // Build groups preserving insertion order
@@ -717,7 +745,12 @@ async fn list_issues(
 }
 
 /// Get multiple issues (supports batch fetching with concurrency limit)
-async fn get_issues(ids: &[String], output: &OutputOptions, history: bool, comments: bool) -> Result<()> {
+async fn get_issues(
+    ids: &[String],
+    output: &OutputOptions,
+    history: bool,
+    comments: bool,
+) -> Result<()> {
     // Handle single ID (most common case)
     if ids.len() == 1 {
         return get_issue(&ids[0], output, history, comments).await;
@@ -1950,7 +1983,10 @@ async fn close_issue(id: &str) -> Result<()> {
 
     let issue_uuid = issue["id"].as_str().unwrap_or(id);
     let result = client
-        .mutate(mutation, Some(json!({ "id": issue_uuid, "input": { "stateId": state_id } })))
+        .mutate(
+            mutation,
+            Some(json!({ "id": issue_uuid, "input": { "stateId": state_id } })),
+        )
         .await?;
 
     if result["data"]["issueUpdate"]["success"].as_bool() == Some(true) {
@@ -1994,7 +2030,11 @@ async fn archive_issue(id: &str, archive: bool) -> Result<()> {
     };
 
     let result = client.mutate(mutation, Some(json!({ "id": id }))).await?;
-    let key = if archive { "issueArchive" } else { "issueUnarchive" };
+    let key = if archive {
+        "issueArchive"
+    } else {
+        "issueUnarchive"
+    };
 
     if result["data"][key]["success"].as_bool() == Some(true) {
         let action = if archive { "Archived" } else { "Unarchived" };
@@ -2037,7 +2077,10 @@ async fn comment_issue(id: &str, body: &str) -> Result<()> {
     "#;
 
     let result = client
-        .mutate(mutation, Some(json!({ "input": { "issueId": id, "body": actual_body } })))
+        .mutate(
+            mutation,
+            Some(json!({ "input": { "issueId": id, "body": actual_body } })),
+        )
         .await?;
 
     if result["data"]["commentCreate"]["success"].as_bool() == Some(true) {
@@ -2123,7 +2166,8 @@ async fn assign_issue(id: &str, user: Option<String>) -> Result<()> {
 
 async fn move_issue(id: &str, project: &str) -> Result<()> {
     let client = LinearClient::new()?;
-    let project_id = crate::api::resolve_project_id(&client, project, &CacheOptions::default()).await?;
+    let project_id =
+        crate::api::resolve_project_id(&client, project, &CacheOptions::default()).await?;
 
     let mutation = r#"
         mutation($id: String!, $input: IssueUpdateInput!) {

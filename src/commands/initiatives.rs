@@ -126,7 +126,9 @@ async fn list_initiatives(output: &OutputOptions, pagination: &PaginationOptions
 
     let mut variables = serde_json::Map::new();
     variables.insert("first".to_string(), json!(limit));
-    let result = client.query(query, Some(serde_json::Value::Object(variables))).await?;
+    let result = client
+        .query(query, Some(serde_json::Value::Object(variables)))
+        .await?;
     let initiatives = &result["data"]["initiatives"]["nodes"];
 
     if output.is_json() {
@@ -323,7 +325,10 @@ async fn update_initiative(
 
 async fn delete_initiative(id: &str, force: bool) -> Result<()> {
     if !force && !crate::is_yes() {
-        anyhow::bail!("Delete requires --force flag. Use: linear initiatives delete {} --force", id);
+        anyhow::bail!(
+            "Delete requires --force flag. Use: linear initiatives delete {} --force",
+            id
+        );
     }
 
     let client = LinearClient::new()?;
@@ -336,9 +341,7 @@ async fn delete_initiative(id: &str, force: bool) -> Result<()> {
         }
     "#;
 
-    let result = client
-        .mutate(mutation, Some(json!({ "id": id })))
-        .await?;
+    let result = client.mutate(mutation, Some(json!({ "id": id }))).await?;
 
     let success = result["data"]["initiativeDelete"]["success"]
         .as_bool()

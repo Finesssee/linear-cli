@@ -185,9 +185,7 @@ pub async fn handle(cmd: TemplateCommands, output: &OutputOptions) -> Result<()>
             team,
             description,
             data,
-        } => {
-            remote_create_template(&name, &template_type, team, description, data, output).await
-        }
+        } => remote_create_template(&name, &template_type, team, description, data, output).await,
         TemplateCommands::RemoteUpdate {
             id,
             name,
@@ -414,7 +412,10 @@ fn delete_template(name: &str, force: bool, output: &OutputOptions) -> Result<()
     }
 
     if !force && !crate::is_yes() {
-        anyhow::bail!("Delete requires --force flag. Use: linear templates delete {} --force", name);
+        anyhow::bail!(
+            "Delete requires --force flag. Use: linear templates delete {} --force",
+            name
+        );
     }
 
     store.templates.remove(name);
@@ -446,10 +447,7 @@ struct RemoteTemplateRow {
     id: String,
 }
 
-async fn remote_list_templates(
-    template_type: Option<&str>,
-    output: &OutputOptions,
-) -> Result<()> {
+async fn remote_list_templates(template_type: Option<&str>, output: &OutputOptions) -> Result<()> {
     let client = LinearClient::new()?;
 
     let query = r#"
@@ -733,9 +731,7 @@ async fn remote_delete_template(id: &str, force: bool, output: &OutputOptions) -
         }
     "#;
 
-    let result = client
-        .mutate(mutation, Some(json!({ "id": id })))
-        .await?;
+    let result = client.mutate(mutation, Some(json!({ "id": id }))).await?;
 
     let success = result["data"]["templateDelete"]["success"]
         .as_bool()

@@ -89,7 +89,10 @@ pub fn get_oauth_tokens(profile: &str) -> Result<Option<String>> {
         Err(keyring::Error::NoStorageAccess(_)) => Ok(None),
         Err(e) => {
             if !crate::output::is_quiet() {
-                eprintln!("Warning: Keyring OAuth error ({}), falling back to config", e);
+                eprintln!(
+                    "Warning: Keyring OAuth error ({}), falling back to config",
+                    e
+                );
             }
             Ok(None)
         }
@@ -100,7 +103,8 @@ pub fn get_oauth_tokens(profile: &str) -> Result<Option<String>> {
 pub fn set_oauth_tokens(profile: &str, json: &str) -> Result<()> {
     let entry = keyring::Entry::new(OAUTH_SERVICE_NAME, profile)
         .context("Failed to create keyring entry")?;
-    entry.set_password(json)
+    entry
+        .set_password(json)
         .context("Failed to store OAuth tokens in keyring")?;
     Ok(())
 }

@@ -162,7 +162,19 @@ pub async fn handle(cmd: WebhookCommands, output: &OutputOptions) -> Result<()> 
             label,
             secret,
             show_secret,
-        } => create_webhook(&url, events, team, all_teams, label, secret, show_secret, output).await,
+        } => {
+            create_webhook(
+                &url,
+                events,
+                team,
+                all_teams,
+                label,
+                secret,
+                show_secret,
+                output,
+            )
+            .await
+        }
         WebhookCommands::Update {
             id,
             url,
@@ -172,7 +184,9 @@ pub async fn handle(cmd: WebhookCommands, output: &OutputOptions) -> Result<()> 
             label,
         } => update_webhook(&id, url, events, enabled, disabled, label, output).await,
         WebhookCommands::Delete { id, force } => delete_webhook(&id, force, output).await,
-        WebhookCommands::RotateSecret { id, show_secret } => rotate_secret(&id, show_secret, output).await,
+        WebhookCommands::RotateSecret { id, show_secret } => {
+            rotate_secret(&id, show_secret, output).await
+        }
         WebhookCommands::Listen {
             port,
             bind,
@@ -241,10 +255,7 @@ async fn list_webhooks(output: &OutputOptions) -> Result<()> {
                 .unwrap_or_else(|| "-".to_string());
 
             WebhookRow {
-                label: truncate(
-                    w["label"].as_str().unwrap_or("-"),
-                    width,
-                ),
+                label: truncate(w["label"].as_str().unwrap_or("-"), width),
                 url: truncate(w["url"].as_str().unwrap_or("-"), width),
                 enabled: if w["enabled"].as_bool() == Some(true) {
                     "Yes".to_string()
@@ -252,10 +263,7 @@ async fn list_webhooks(output: &OutputOptions) -> Result<()> {
                     "No".to_string()
                 },
                 events: truncate(&events, width),
-                team: truncate(
-                    w["team"]["name"].as_str().unwrap_or("All"),
-                    width,
-                ),
+                team: truncate(w["team"]["name"].as_str().unwrap_or("All"), width),
                 id: w["id"].as_str().unwrap_or("").to_string(),
             }
         })
@@ -303,10 +311,7 @@ async fn get_webhook(id: &str, show_secret: bool, output: &OutputOptions) -> Res
     println!("{}", wh.label.as_deref().unwrap_or("Webhook").bold());
     println!("{}", "-".repeat(40));
     println!("URL: {}", wh.url.as_deref().unwrap_or("-"));
-    println!(
-        "Enabled: {}",
-        if wh.enabled { "Yes" } else { "No" }
-    );
+    println!("Enabled: {}", if wh.enabled { "Yes" } else { "No" });
 
     if !wh.resource_types.is_empty() {
         println!("Events: {}", wh.resource_types.join(", "));
@@ -422,10 +427,7 @@ async fn create_webhook(
             print_json_owned(webhook, output)?;
             return Ok(());
         }
-        println!(
-            "{} Created webhook",
-            "+".green(),
-        );
+        println!("{} Created webhook", "+".green(),);
         println!("  ID: {}", webhook["id"].as_str().unwrap_or(""));
         println!("  URL: {}", webhook["url"].as_str().unwrap_or(""));
         println!(
@@ -666,10 +668,7 @@ async fn listen(
             println!(
                 "Use a tunnel service (ngrok, cloudflare tunnel) and pass --url with your public URL."
             );
-            println!(
-                "Starting local server on port {} anyway...",
-                port
-            );
+            println!("Starting local server on port {} anyway...", port);
             format!("http://localhost:{}/webhook", port)
         }
     };
@@ -719,11 +718,7 @@ async fn listen(
         .as_str()
         .context("Missing webhook ID")?
         .to_string();
-    let webhook_secret = secret.or_else(|| {
-        webhook_data["secret"]
-            .as_str()
-            .map(|s| s.to_string())
-    });
+    let webhook_secret = secret.or_else(|| webhook_data["secret"].as_str().map(|s| s.to_string()));
     if webhook_secret.is_none() {
         let delete_mutation = r#"
             mutation($id: String!) {
@@ -736,11 +731,7 @@ async fn listen(
         anyhow::bail!("Webhook secret was not returned; refusing to start unsigned listener");
     }
 
-    println!(
-        "{} Temporary webhook created: {}",
-        "+".green(),
-        webhook_id
-    );
+    println!("{} Temporary webhook created: {}", "+".green(), webhook_id);
     println!("  URL: {}", webhook_url);
     println!("  Listening on port {}...", port);
     println!("  Press Ctrl+C to stop and clean up.\n");
@@ -816,7 +807,10 @@ async fn listen(
                     webhook_id_clone
                 );
             } else {
-                eprintln!("Warning: Failed to delete temporary webhook {}", webhook_id_clone);
+                eprintln!(
+                    "Warning: Failed to delete temporary webhook {}",
+                    webhook_id_clone
+                );
             }
         }
         Err(e) => {
@@ -867,7 +861,8 @@ async fn handle_connection(
         }
 
         if header_len >= header_buf.len() {
-            let response = "HTTP/1.1 431 Request Header Fields Too Large\r\nContent-Length: 0\r\n\r\n";
+            let response =
+                "HTTP/1.1 431 Request Header Fields Too Large\r\nContent-Length: 0\r\n\r\n";
             stream.write_all(response.as_bytes()).await?;
             return Ok(());
         }
@@ -946,21 +941,13 @@ async fn handle_connection(
     if let Some(s) = secret {
         if let Some(ref sig) = signature {
             if !verify_signature(s, body.as_bytes(), sig) {
-                eprintln!(
-                    "{} Invalid signature from {}",
-                    "!".red(),
-                    addr
-                );
+                eprintln!("{} Invalid signature from {}", "!".red(), addr);
                 let response = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n";
                 stream.write_all(response.as_bytes()).await?;
                 return Ok(());
             }
         } else {
-            eprintln!(
-                "{} Missing signature from {}",
-                "!".red(),
-                addr
-            );
+            eprintln!("{} Missing signature from {}", "!".red(), addr);
             let response = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n";
             stream.write_all(response.as_bytes()).await?;
             return Ok(());

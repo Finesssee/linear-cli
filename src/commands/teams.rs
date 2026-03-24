@@ -115,7 +115,19 @@ pub async fn handle(cmd: TeamCommands, output: &OutputOptions) -> Result<()> {
             color,
             private,
             timezone,
-        } => create_team(&name, key, description, icon, color, private, timezone, output).await,
+        } => {
+            create_team(
+                &name,
+                key,
+                description,
+                icon,
+                color,
+                private,
+                timezone,
+                output,
+            )
+            .await
+        }
         TeamCommands::Update {
             id,
             name,
@@ -124,7 +136,19 @@ pub async fn handle(cmd: TeamCommands, output: &OutputOptions) -> Result<()> {
             color,
             private,
             timezone,
-        } => update_team(&id, name, description, icon, color, private, timezone, output).await,
+        } => {
+            update_team(
+                &id,
+                name,
+                description,
+                icon,
+                color,
+                private,
+                timezone,
+                output,
+            )
+            .await
+        }
         TeamCommands::Delete { id, force } => delete_team(&id, force, output).await,
     }
 }
@@ -421,9 +445,7 @@ async fn list_members(team: &str, output: &OutputOptions) -> Result<()> {
         }
     "#;
 
-    let result = client
-        .query(query, Some(json!({ "id": team_id })))
-        .await?;
+    let result = client.query(query, Some(json!({ "id": team_id }))).await?;
     let team_data = &result["data"]["team"];
 
     if team_data.is_null() {
@@ -541,7 +563,12 @@ async fn create_team(
         }
         let display_name = team["name"].as_str().unwrap_or(name);
         let display_key = team["key"].as_str().unwrap_or("");
-        println!("{} Created team: {} ({})", "+".green(), display_name, display_key);
+        println!(
+            "{} Created team: {} ({})",
+            "+".green(),
+            display_name,
+            display_key
+        );
         println!("  ID: {}", team["id"].as_str().unwrap_or(""));
     } else {
         anyhow::bail!("Failed to create team");

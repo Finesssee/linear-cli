@@ -286,9 +286,7 @@ pub async fn handle(cmd: ProjectCommands, output: &OutputOptions) -> Result<()> 
         }
         ProjectCommands::Delete { id, force } => delete_project(&id, force).await,
         ProjectCommands::AddLabels { id, labels } => add_labels(&id, labels, output).await,
-        ProjectCommands::RemoveLabels { id, labels } => {
-            remove_labels(&id, labels, output).await
-        }
+        ProjectCommands::RemoveLabels { id, labels } => remove_labels(&id, labels, output).await,
         ProjectCommands::SetLabels { id, labels } => set_labels(&id, labels, output).await,
         ProjectCommands::Archive { id } => archive_project(&id, true, output).await,
         ProjectCommands::Unarchive { id } => archive_project(&id, false, output).await,
@@ -498,7 +496,9 @@ async fn open_project(id: &str, cache: &crate::cache::CacheOptions) -> Result<()
             }
         }
     "#;
-    let result = client.query(query, Some(json!({ "id": resolved_id }))).await?;
+    let result = client
+        .query(query, Some(json!({ "id": resolved_id })))
+        .await?;
     let project = &result["data"]["project"];
 
     if project.is_null() {

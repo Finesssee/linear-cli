@@ -146,9 +146,7 @@ pub async fn handle(cmd: ExportCommands, _output: &OutputOptions) -> Result<()> 
             all,
             pretty,
         } => export_json(team, file, include_completed, limit, all, pretty).await,
-        ExportCommands::ProjectsCsv { file, archived } => {
-            export_projects_csv(file, archived).await
-        }
+        ExportCommands::ProjectsCsv { file, archived } => export_projects_csv(file, archived).await,
     }
 }
 
@@ -269,7 +267,8 @@ async fn export_csv(
                         &issue["priority"].as_i64().unwrap_or(0).to_string(),
                         &issue["estimate"].as_f64().unwrap_or(0.0).to_string(),
                         sanitize_csv_cell(issue["dueDate"].as_str().unwrap_or("")).as_ref(),
-                        sanitize_csv_cell(issue["assignee"]["name"].as_str().unwrap_or("")).as_ref(),
+                        sanitize_csv_cell(issue["assignee"]["name"].as_str().unwrap_or(""))
+                            .as_ref(),
                         sanitize_csv_cell(issue["team"]["key"].as_str().unwrap_or("")).as_ref(),
                         sanitize_csv_cell(issue["project"]["name"].as_str().unwrap_or("")).as_ref(),
                         sanitize_csv_cell(issue["cycle"]["name"].as_str().unwrap_or("")).as_ref(),

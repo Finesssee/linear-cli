@@ -27,8 +27,8 @@ pub fn is_uuid(value: &str) -> bool {
 /// Strip common markdown formatting for terminal display.
 /// Converts headers, bold, italic, links, images, code blocks, etc. to plain text.
 pub fn strip_markdown(input: &str) -> String {
-    use std::sync::OnceLock;
     use regex::Regex;
+    use std::sync::OnceLock;
 
     static PATTERNS: OnceLock<Vec<(Regex, &str)>> = OnceLock::new();
     let patterns = PATTERNS.get_or_init(|| {
@@ -45,7 +45,10 @@ pub fn strip_markdown(input: &str) -> String {
             (Regex::new(r"_{2}([^_]+)_{2}").unwrap(), "$1"),
             // Italic: *text* or _text_
             (Regex::new(r"\*([^*]+)\*").unwrap(), "$1"),
-            (Regex::new(r"(?:^|[\s(])_([^_]+)_(?:[\s).,;:!?]|$)").unwrap(), "$1"),
+            (
+                Regex::new(r"(?:^|[\s(])_([^_]+)_(?:[\s).,;:!?]|$)").unwrap(),
+                "$1",
+            ),
             // Strikethrough: ~~text~~
             (Regex::new(r"~~([^~]+)~~").unwrap(), "$1"),
             // Inline code: `code`
@@ -153,7 +156,10 @@ mod tests {
 
     #[test]
     fn test_strip_markdown_links() {
-        assert_eq!(strip_markdown("[click here](https://example.com)"), "click here");
+        assert_eq!(
+            strip_markdown("[click here](https://example.com)"),
+            "click here"
+        );
         assert_eq!(strip_markdown("![alt text](image.png)"), "alt text");
     }
 

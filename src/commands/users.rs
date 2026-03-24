@@ -273,9 +273,7 @@ async fn get_user(user: &str, output: &OutputOptions) -> Result<()> {
         }
     "#;
 
-    let result = client
-        .query(query, Some(json!({ "id": user_id })))
-        .await?;
+    let result = client.query(query, Some(json!({ "id": user_id }))).await?;
     let raw = &result["data"]["user"];
 
     if raw.is_null() {

@@ -241,9 +241,11 @@ async fn create_issue_interactive(client: &LinearClient, team: &Team) -> Result<
     if let Some(members) = team_data["members"]["nodes"].as_array() {
         if !members.is_empty() {
             let mut names: Vec<String> = vec!["(Skip)".to_string()];
-            names.extend(members.iter().filter_map(|m| {
-                m["name"].as_str().map(|s| s.to_string())
-            }));
+            names.extend(
+                members
+                    .iter()
+                    .filter_map(|m| m["name"].as_str().map(|s| s.to_string())),
+            );
             let sel = Select::new()
                 .with_prompt("Assignee")
                 .items(&names)
@@ -260,9 +262,11 @@ async fn create_issue_interactive(client: &LinearClient, team: &Team) -> Result<
     if let Some(states) = team_data["states"]["nodes"].as_array() {
         if !states.is_empty() {
             let mut names: Vec<String> = vec!["(Default)".to_string()];
-            names.extend(states.iter().filter_map(|s| {
-                s["name"].as_str().map(|n| n.to_string())
-            }));
+            names.extend(
+                states
+                    .iter()
+                    .filter_map(|s| s["name"].as_str().map(|n| n.to_string())),
+            );
             let sel = Select::new()
                 .with_prompt("Status")
                 .items(&names)
@@ -279,9 +283,11 @@ async fn create_issue_interactive(client: &LinearClient, team: &Team) -> Result<
     if let Some(labels) = team_data["labels"]["nodes"].as_array() {
         if !labels.is_empty() {
             let mut names: Vec<String> = vec!["(Skip)".to_string()];
-            names.extend(labels.iter().filter_map(|l| {
-                l["name"].as_str().map(|n| n.to_string())
-            }));
+            names.extend(
+                labels
+                    .iter()
+                    .filter_map(|l| l["name"].as_str().map(|n| n.to_string())),
+            );
             let sel = Select::new()
                 .with_prompt("Label")
                 .items(&names)

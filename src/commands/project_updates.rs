@@ -364,9 +364,7 @@ async fn archive_update(id: &str, output: &OutputOptions) -> Result<()> {
         }
     "#;
 
-    let result = client
-        .mutate(mutation, Some(json!({ "id": id })))
-        .await?;
+    let result = client.mutate(mutation, Some(json!({ "id": id }))).await?;
 
     let success = result["data"]["projectUpdateArchive"]["success"]
         .as_bool()
@@ -396,9 +394,7 @@ async fn unarchive_update(id: &str, output: &OutputOptions) -> Result<()> {
         }
     "#;
 
-    let result = client
-        .mutate(mutation, Some(json!({ "id": id })))
-        .await?;
+    let result = client.mutate(mutation, Some(json!({ "id": id }))).await?;
 
     let success = result["data"]["projectUpdateUnarchive"]["success"]
         .as_bool()

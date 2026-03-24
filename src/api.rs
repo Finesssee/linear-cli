@@ -304,6 +304,8 @@ pub async fn resolve_label_id(
 }
 
 /// Resolve a project name or slug to a UUID.
+/// Falls back to paginated lookup if the filtered query fails (some team/project
+/// combinations cause the Linear API to reject name-based lookups).
 pub async fn resolve_project_id(
     client: &LinearClient,
     project: &str,
@@ -313,34 +315,81 @@ pub async fn resolve_project_id(
         return Ok(project.to_string());
     }
 
-    let config = ResolverConfig {
-        cache_type: CacheType::Projects,
-        filtered_query: r#"
+    // Check cache first
+    if !cache_opts.no_cache {
+        let cache = Cache::with_ttl(cache_opts.effective_ttl_seconds())?;
+        if let Some(cached) = cache
+            .get(CacheType::Projects)
+            .and_then(|data| data.as_array().cloned())
+        {
+            if let Some(id) = find_project_id(&cached, project) {
+                return Ok(id);
+            }
+        }
+    }
+
+    // Try filtered query first (fast path) -- tolerate errors and fall through
+    let filtered_result = client
+        .query(
+            r#"
             query($project: String!) {
                 projects(first: 50, filter: { name: { eqIgnoreCase: $project } }) {
                     nodes { id name slugId }
                 }
             }
-        "#,
-        filtered_var_name: "project",
-        filtered_nodes_path: &["data", "projects", "nodes"],
-        paginated_query: r#"
-            query($first: Int, $after: String) {
-                projects(first: $first, after: $after) {
-                    nodes { id name slugId }
-                    pageInfo { hasNextPage endCursor }
-                }
-            }
-        "#,
-        paginated_nodes_path: &["data", "projects", "nodes"],
-        paginated_page_info_path: &["data", "projects", "pageInfo"],
-        not_found_msg: &format!(
-            "Project not found: {}. Use linear-cli p list to see available projects.",
-            project
-        ),
-    };
+            "#,
+            Some(json!({ "project": project })),
+        )
+        .await;
 
-    resolve_id(client, project, cache_opts, &config, find_project_id).await
+    if let Ok(result) = filtered_result {
+        let empty = vec![];
+        let nodes = get_nested_array(&result, &["data", "projects", "nodes"]).unwrap_or(&empty);
+        if let Some(id) = find_project_id(nodes, project) {
+            return Ok(id);
+        }
+    }
+
+    // Fallback: paginate through all projects
+    let pagination = PaginationOptions {
+        all: true,
+        page_size: Some(250),
+        ..Default::default()
+    };
+    let all_items = paginate_nodes(
+        client,
+        r#"
+        query($first: Int, $after: String) {
+            projects(first: $first, after: $after) {
+                nodes { id name slugId }
+                pageInfo { hasNextPage endCursor }
+            }
+        }
+        "#,
+        serde_json::Map::new(),
+        &["data", "projects", "nodes"],
+        &["data", "projects", "pageInfo"],
+        &pagination,
+        250,
+    )
+    .await?;
+
+    if !cache_opts.no_cache {
+        let cache = Cache::with_ttl(cache_opts.effective_ttl_seconds())?;
+        let _ = cache.set(CacheType::Projects, json!(all_items));
+    }
+
+    if let Some(id) = find_project_id(&all_items, project) {
+        return Ok(id);
+    }
+
+    anyhow::bail!(
+        "Could not resolve project \"{}\". \
+         Tip: try using the project's slugId (UUID) instead:\n  \
+         linear-cli issues update <ID> --project \"<slugId>\"\n\
+         You can find project slugIds via: linear-cli projects list",
+        project
+    )
 }
 
 /// Resolve a state name to a UUID for a given team.
@@ -531,7 +580,11 @@ impl AuthState {
     pub fn needs_refresh(&self) -> bool {
         match self {
             AuthState::ApiKey(_) => false,
-            AuthState::OAuth { expires_at, refresh_token, .. } => {
+            AuthState::OAuth {
+                expires_at,
+                refresh_token,
+                ..
+            } => {
                 if refresh_token.is_none() {
                     return false;
                 }
@@ -700,7 +753,8 @@ impl LinearClient {
         if let Ok(Some(oauth)) = config::get_oauth_config(&profile) {
             if !oauth.access_token.is_empty() {
                 // If token has a refresh_token or isn't expired, use OAuth
-                let is_expired = oauth.expires_at
+                let is_expired = oauth
+                    .expires_at
                     .map(|exp| chrono::Utc::now().timestamp() >= (exp - 300))
                     .unwrap_or(false);
 
@@ -740,8 +794,14 @@ impl LinearClient {
         }
 
         match &*auth {
-            AuthState::OAuth { refresh_token, client_id, profile, .. } => {
-                let refresh_token = refresh_token.as_ref()
+            AuthState::OAuth {
+                refresh_token,
+                client_id,
+                profile,
+                ..
+            } => {
+                let refresh_token = refresh_token
+                    .as_ref()
                     .context("OAuth token expired but no refresh token available")?;
 
                 let new_tokens = crate::oauth::refresh_tokens(client_id, refresh_token).await?;
@@ -762,7 +822,8 @@ impl LinearClient {
                     scopes,
                 };
                 #[cfg(feature = "secure-storage")]
-                let persist_result = if config::oauth_uses_secure_storage(profile).unwrap_or(false) {
+                let persist_result = if config::oauth_uses_secure_storage(profile).unwrap_or(false)
+                {
                     config::save_oauth_config_secure(profile, &oauth_config)
                 } else {
                     config::save_oauth_config(profile, &oauth_config)
@@ -843,7 +904,10 @@ mod tests {
             expires_at: Some(chrono::Utc::now().timestamp() - 100), // expired
             profile: "default".to_string(),
         };
-        assert!(!state.needs_refresh(), "OAuth without refresh token should not need refresh even if expired");
+        assert!(
+            !state.needs_refresh(),
+            "OAuth without refresh token should not need refresh even if expired"
+        );
     }
 
     #[test]
@@ -855,7 +919,10 @@ mod tests {
             expires_at: Some(chrono::Utc::now().timestamp() - 100), // expired
             profile: "default".to_string(),
         };
-        assert!(state.needs_refresh(), "OAuth with expired token and refresh token should need refresh");
+        assert!(
+            state.needs_refresh(),
+            "OAuth with expired token and refresh token should need refresh"
+        );
     }
 
     #[test]
@@ -867,7 +934,10 @@ mod tests {
             expires_at: Some(chrono::Utc::now().timestamp() + 200), // within 5min buffer
             profile: "default".to_string(),
         };
-        assert!(state.needs_refresh(), "OAuth expiring within buffer should need refresh");
+        assert!(
+            state.needs_refresh(),
+            "OAuth expiring within buffer should need refresh"
+        );
     }
 
     #[test]
@@ -879,7 +949,10 @@ mod tests {
             expires_at: Some(chrono::Utc::now().timestamp() + 3600), // 1 hour from now
             profile: "default".to_string(),
         };
-        assert!(!state.needs_refresh(), "OAuth with fresh token should not need refresh");
+        assert!(
+            !state.needs_refresh(),
+            "OAuth with fresh token should not need refresh"
+        );
     }
 
     #[test]
@@ -891,7 +964,10 @@ mod tests {
             expires_at: None, // no expiry (legacy token)
             profile: "default".to_string(),
         };
-        assert!(!state.needs_refresh(), "OAuth without expiry should not need refresh");
+        assert!(
+            !state.needs_refresh(),
+            "OAuth without expiry should not need refresh"
+        );
     }
 
     #[test]
@@ -911,6 +987,9 @@ mod tests {
     fn test_auth_state_debug() {
         let state = AuthState::ApiKey("key".to_string());
         let debug = format!("{:?}", state);
-        assert!(debug.contains("ApiKey"), "Debug output should contain variant name");
+        assert!(
+            debug.contains("ApiKey"),
+            "Debug output should contain variant name"
+        );
     }
 }

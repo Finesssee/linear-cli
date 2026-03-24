@@ -191,7 +191,11 @@ pub async fn run(output: &OutputOptions, check_api: bool, fix: bool) -> Result<(
     );
     println!(
         "OAuth keyring configured: {}",
-        if oauth_keyring_configured { "yes" } else { "no" }
+        if oauth_keyring_configured {
+            "yes"
+        } else {
+            "no"
+        }
     );
     println!(
         "Env API key override: {}",

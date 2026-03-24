@@ -31,7 +31,10 @@ impl PkceChallenge {
         let hash = hasher.finalize();
         let challenge = base64_url_encode(&hash);
 
-        Self { verifier, challenge }
+        Self {
+            verifier,
+            challenge,
+        }
     }
 }
 
@@ -68,8 +71,8 @@ pub fn build_authorize_url(
     state: &str,
     pkce: &PkceChallenge,
 ) -> Result<String> {
-    let mut url = url::Url::parse(LINEAR_AUTHORIZE_URL)
-        .context("Failed to parse Linear authorize URL")?;
+    let mut url =
+        url::Url::parse(LINEAR_AUTHORIZE_URL).context("Failed to parse Linear authorize URL")?;
     url.query_pairs_mut()
         .append_pair("client_id", client_id)
         .append_pair("redirect_uri", redirect_uri)
@@ -86,12 +89,10 @@ pub fn build_authorize_url(
 /// Returns the authorization code from the callback.
 pub async fn wait_for_callback(port: u16, expected_state: &str) -> Result<String> {
     let addr = format!("127.0.0.1:{}", port);
-    let listener = TcpListener::bind(&addr)
-        .await
-        .context(format!(
-            "Failed to bind to {}. Is another process using this port?",
-            addr
-        ))?;
+    let listener = TcpListener::bind(&addr).await.context(format!(
+        "Failed to bind to {}. Is another process using this port?",
+        addr
+    ))?;
 
     // Use a timeout so we don't hang forever
     let timeout = tokio::time::Duration::from_secs(300); // 5 minutes
@@ -112,7 +113,9 @@ pub async fn wait_for_callback(port: u16, expected_state: &str) -> Result<String
 
     // Validate HTTP method and path
     let mut parts = request_line.split_whitespace();
-    let method = parts.next().context("Invalid HTTP request: missing method")?;
+    let method = parts
+        .next()
+        .context("Invalid HTTP request: missing method")?;
     let path = parts.next().context("Invalid HTTP request: missing path")?;
 
     if method != "GET" {
@@ -157,10 +160,7 @@ pub async fn wait_for_callback(port: u16, expected_state: &str) -> Result<String
 
     // Check for error only after state validation and escape it before reflecting to the browser
     if let Some(error) = params.get("error") {
-        let desc = params
-            .get("error_description")
-            .cloned()
-            .unwrap_or_default();
+        let desc = params.get("error_description").cloned().unwrap_or_default();
         let response = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
              <html><body><h2>Authentication Failed</h2>\
@@ -239,9 +239,7 @@ pub async fn exchange_code(
         .unwrap_or("Bearer")
         .to_string();
 
-    let scope = token_response["scope"]
-        .as_str()
-        .map(|s| s.to_string());
+    let scope = token_response["scope"].as_str().map(|s| s.to_string());
 
     Ok(OAuthTokens {
         access_token,
@@ -296,9 +294,7 @@ pub async fn refresh_tokens(client_id: &str, refresh_token: &str) -> Result<OAut
         .unwrap_or("Bearer")
         .to_string();
 
-    let scope = token_response["scope"]
-        .as_str()
-        .map(|s| s.to_string());
+    let scope = token_response["scope"].as_str().map(|s| s.to_string());
 
     Ok(OAuthTokens {
         access_token,
@@ -401,8 +397,8 @@ mod tests {
     #[test]
     fn test_build_authorize_url_base() {
         let pkce = PkceChallenge::generate();
-        let url = build_authorize_url("c", "http://localhost:8484/callback", "read", "s", &pkce)
-            .unwrap();
+        let url =
+            build_authorize_url("c", "http://localhost:8484/callback", "read", "s", &pkce).unwrap();
         assert!(url.starts_with("https://linear.app/oauth/authorize?"));
     }
 
@@ -491,8 +487,16 @@ mod tests {
     fn test_pkce_verifier_length() {
         // RFC 7636 requires verifier to be 43-128 characters
         let pkce = PkceChallenge::generate();
-        assert!(pkce.verifier.len() >= 43, "verifier should be at least 43 chars, got {}", pkce.verifier.len());
-        assert!(pkce.verifier.len() <= 128, "verifier should be at most 128 chars, got {}", pkce.verifier.len());
+        assert!(
+            pkce.verifier.len() >= 43,
+            "verifier should be at least 43 chars, got {}",
+            pkce.verifier.len()
+        );
+        assert!(
+            pkce.verifier.len() <= 128,
+            "verifier should be at most 128 chars, got {}",
+            pkce.verifier.len()
+        );
     }
 
     #[test]
@@ -503,7 +507,8 @@ mod tests {
             assert!(
                 c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '_' || c == '~',
                 "verifier contains invalid character: '{}' (0x{:02x})",
-                c, c as u32
+                c,
+                c as u32
             );
         }
     }
@@ -555,9 +560,12 @@ mod tests {
     #[test]
     fn test_build_authorize_url_includes_prompt() {
         let pkce = PkceChallenge::generate();
-        let url = build_authorize_url("c", "http://localhost:8484/callback", "read", "s", &pkce)
-            .unwrap();
-        assert!(url.contains("prompt=consent"), "URL should include prompt=consent");
+        let url =
+            build_authorize_url("c", "http://localhost:8484/callback", "read", "s", &pkce).unwrap();
+        assert!(
+            url.contains("prompt=consent"),
+            "URL should include prompt=consent"
+        );
     }
 
     #[test]
@@ -570,7 +578,10 @@ mod tests {
             token_type: "Bearer".to_string(),
             scope: None,
         };
-        assert!(is_expired(&tokens), "token expiring exactly at buffer boundary should be expired");
+        assert!(
+            is_expired(&tokens),
+            "token expiring exactly at buffer boundary should be expired"
+        );
     }
 
     #[test]
@@ -583,20 +594,30 @@ mod tests {
             token_type: "Bearer".to_string(),
             scope: None,
         };
-        assert!(!is_expired(&tokens), "token expiring 301s from now should not be expired");
+        assert!(
+            !is_expired(&tokens),
+            "token expiring 301s from now should not be expired"
+        );
     }
 
     #[test]
     fn test_generate_state_length() {
         let state = generate_state();
         // 16 random bytes base64-encoded = ~22 chars
-        assert!(state.len() >= 20, "state should be at least 20 chars, got {}", state.len());
+        assert!(
+            state.len() >= 20,
+            "state should be at least 20 chars, got {}",
+            state.len()
+        );
     }
 
     #[test]
     fn test_base64_url_encode_empty() {
         let encoded = base64_url_encode(&[]);
-        assert!(encoded.is_empty(), "encoding empty data should produce empty string");
+        assert!(
+            encoded.is_empty(),
+            "encoding empty data should produce empty string"
+        );
     }
 
     #[test]

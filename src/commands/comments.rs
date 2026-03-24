@@ -380,9 +380,7 @@ async fn delete_comment(id: &str, force: bool) -> Result<()> {
         }
     "#;
 
-    let result = client
-        .mutate(mutation, Some(json!({ "id": id })))
-        .await?;
+    let result = client.mutate(mutation, Some(json!({ "id": id }))).await?;
 
     if result["data"]["commentDelete"]["success"].as_bool() == Some(true) {
         println!("{} Comment deleted", "+".green());

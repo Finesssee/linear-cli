@@ -107,14 +107,14 @@ async fn list_relations(id: &str, output: &OutputOptions) -> Result<()> {
                     id
                     identifier
                     title
-                    state { name }
+                    state { id name }
                 }
                 children {
                     nodes {
                         id
                         identifier
                         title
-                        state { name }
+                        state { id name }
                     }
                 }
                 relations {
@@ -125,7 +125,7 @@ async fn list_relations(id: &str, output: &OutputOptions) -> Result<()> {
                             id
                             identifier
                             title
-                            state { name }
+                            state { id name }
                         }
                     }
                 }
@@ -137,7 +137,7 @@ async fn list_relations(id: &str, output: &OutputOptions) -> Result<()> {
                             id
                             identifier
                             title
-                            state { name }
+                            state { id name }
                         }
                     }
                 }
@@ -448,5 +448,44 @@ mod tests {
     #[test]
     fn test_relation_type_duplicate() {
         assert_eq!(RelationType::Duplicate.to_api_string(), "duplicate");
+    }
+
+    #[test]
+    fn test_relation_node_deserializes_with_state_id() {
+        use crate::types::IssueRelation;
+        let json = r#"{
+            "id": "rel1",
+            "type": "blocks",
+            "relatedIssue": {
+                "id": "issue2",
+                "identifier": "LIN-2",
+                "title": "Blocked task",
+                "state": { "id": "state1", "name": "In Progress" }
+            }
+        }"#;
+        let rel: IssueRelation = serde_json::from_str(json).unwrap();
+        assert_eq!(rel.relation_type.as_deref(), Some("blocks"));
+        let related = rel.related_issue.as_ref().unwrap();
+        assert_eq!(related.identifier, "LIN-2");
+        assert_eq!(related.state.as_ref().unwrap().name, "In Progress");
+    }
+
+    #[test]
+    fn test_relation_node_fails_without_state_id() {
+        use crate::types::IssueRelation;
+        // state { name } only (no id) should fail IssueRef deserialization
+        let json = r#"{
+            "id": "rel1",
+            "type": "blocks",
+            "relatedIssue": {
+                "id": "issue2",
+                "identifier": "LIN-2",
+                "title": "Blocked task",
+                "state": { "name": "In Progress" }
+            }
+        }"#;
+        let rel: Result<IssueRelation, _> = serde_json::from_str(json);
+        // This should fail because WorkflowState requires id
+        assert!(rel.is_err());
     }
 }

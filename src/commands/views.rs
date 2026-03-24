@@ -126,7 +126,17 @@ pub async fn handle(cmd: ViewCommands, output: &OutputOptions) -> Result<()> {
             icon,
             color,
         } => {
-            create_view(&name, description, team, shared, filter_json, icon, color, output).await
+            create_view(
+                &name,
+                description,
+                team,
+                shared,
+                filter_json,
+                icon,
+                color,
+                output,
+            )
+            .await
         }
         ViewCommands::Update {
             name_or_id,
@@ -135,18 +145,11 @@ pub async fn handle(cmd: ViewCommands, output: &OutputOptions) -> Result<()> {
             shared,
             filter_json,
         } => update_view(&name_or_id, name, description, shared, filter_json, output).await,
-        ViewCommands::Delete {
-            name_or_id,
-            force,
-        } => delete_view(&name_or_id, force, output).await,
+        ViewCommands::Delete { name_or_id, force } => delete_view(&name_or_id, force, output).await,
     }
 }
 
-async fn list_views(
-    team: Option<String>,
-    shared_only: bool,
-    output: &OutputOptions,
-) -> Result<()> {
+async fn list_views(team: Option<String>, shared_only: bool, output: &OutputOptions) -> Result<()> {
     let client = LinearClient::new()?;
 
     let query = r#"
@@ -223,14 +226,8 @@ async fn list_views(
                 } else {
                     "No".to_string()
                 },
-                owner: truncate(
-                    v["owner"]["name"].as_str().unwrap_or("-"),
-                    width,
-                ),
-                team: truncate(
-                    v["team"]["name"].as_str().unwrap_or("-"),
-                    width,
-                ),
+                owner: truncate(v["owner"]["name"].as_str().unwrap_or("-"), width),
+                team: truncate(v["team"]["name"].as_str().unwrap_or("-"), width),
                 updated,
                 id: v["id"].as_str().unwrap_or("").to_string(),
             }
@@ -260,9 +257,7 @@ async fn get_view(name_or_id: &str, output: &OutputOptions) -> Result<()> {
         }
     "#;
 
-    let result = client
-        .query(query, Some(json!({ "id": view_id })))
-        .await?;
+    let result = client.query(query, Some(json!({ "id": view_id }))).await?;
     let view = &result["data"]["customView"];
 
     if view.is_null() {
@@ -283,10 +278,7 @@ async fn get_view(name_or_id: &str, output: &OutputOptions) -> Result<()> {
         println!("Description: {}", desc);
     }
 
-    println!(
-        "Shared: {}",
-        if cv.shared { "Yes" } else { "No" }
-    );
+    println!("Shared: {}", if cv.shared { "Yes" } else { "No" });
 
     if let Some(owner) = &cv.owner {
         println!("Owner: {}", owner.name);
@@ -490,10 +482,7 @@ async fn update_view(
                 output,
             )?;
         } else {
-            println!(
-                "{}",
-                "[DRY RUN] Would update custom view:".yellow().bold()
-            );
+            println!("{}", "[DRY RUN] Would update custom view:".yellow().bold());
             println!("  ID: {}", view_id);
         }
         return Ok(());
@@ -514,10 +503,7 @@ async fn update_view(
 
     if result["data"]["customViewUpdate"]["success"].as_bool() == Some(true) {
         if output.is_json() || output.has_template() {
-            print_json(
-                &result["data"]["customViewUpdate"]["customView"],
-                output,
-            )?;
+            print_json(&result["data"]["customViewUpdate"]["customView"], output)?;
             return Ok(());
         }
         println!("{} Custom view updated", "+".green());
@@ -542,10 +528,7 @@ async fn delete_view(name_or_id: &str, force: bool, output: &OutputOptions) -> R
                 output,
             )?;
         } else {
-            println!(
-                "{}",
-                "[DRY RUN] Would delete custom view:".yellow().bold()
-            );
+            println!("{}", "[DRY RUN] Would delete custom view:".yellow().bold());
             println!("  ID: {}", view_id);
         }
         return Ok(());
@@ -604,16 +587,11 @@ pub async fn fetch_view_filter(
         }
     "#;
 
-    let result = client
-        .query(query, Some(json!({ "id": view_id })))
-        .await?;
+    let result = client.query(query, Some(json!({ "id": view_id }))).await?;
     let filter = &result["data"]["customView"]["filterData"];
 
     if filter.is_null() {
-        anyhow::bail!(
-            "Custom view '{}' has no filter data",
-            view_name_or_id
-        );
+        anyhow::bail!("Custom view '{}' has no filter data", view_name_or_id);
     }
 
     Ok(filter.clone())
@@ -635,9 +613,7 @@ pub async fn fetch_view_project_filter(
         }
     "#;
 
-    let result = client
-        .query(query, Some(json!({ "id": view_id })))
-        .await?;
+    let result = client.query(query, Some(json!({ "id": view_id }))).await?;
     let filter = &result["data"]["customView"]["projectFilterData"];
 
     if filter.is_null() {

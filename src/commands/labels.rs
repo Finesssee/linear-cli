@@ -342,7 +342,10 @@ async fn create_label(
 
 async fn delete_label(id: &str, label_type: &str, force: bool) -> Result<()> {
     if !force && !crate::is_yes() {
-        anyhow::bail!("Delete requires --force flag. Use: linear labels delete {} --force", id);
+        anyhow::bail!(
+            "Delete requires --force flag. Use: linear labels delete {} --force",
+            id
+        );
     }
 
     let client = LinearClient::new()?;

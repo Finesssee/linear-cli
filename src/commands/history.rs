@@ -73,7 +73,9 @@ async fn issue_history(id: &str, limit: usize, output: &OutputOptions) -> Result
         }
     "#;
 
-    let result = client.query(issue_query, Some(json!({ "id": id, "limit": limit }))).await?;
+    let result = client
+        .query(issue_query, Some(json!({ "id": id, "limit": limit })))
+        .await?;
     let issue = &result["data"]["issue"];
 
     if issue.is_null() {

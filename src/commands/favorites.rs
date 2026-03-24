@@ -6,7 +6,9 @@ use tabled::{Table, Tabled};
 
 use crate::api::LinearClient;
 use crate::display_options;
-use crate::output::{ensure_non_empty, filter_values, print_json, print_json_owned, sort_values, OutputOptions};
+use crate::output::{
+    ensure_non_empty, filter_values, print_json, print_json_owned, sort_values, OutputOptions,
+};
 use crate::pagination::paginate_nodes;
 use crate::text::truncate;
 use crate::types::Favorite;
@@ -136,21 +138,33 @@ async fn list_favorites(output: &OutputOptions) -> Result<()> {
                             issue.identifier,
                             issue.title.as_deref().unwrap_or("")
                         );
-                        ("Issue".to_string(), truncate(&display_name, max_width), issue.id.clone())
+                        (
+                            "Issue".to_string(),
+                            truncate(&display_name, max_width),
+                            issue.id.clone(),
+                        )
                     } else {
                         ("Issue".to_string(), "-".to_string(), f.id.clone())
                     }
                 }
                 Some("project") => {
                     if let Some(project) = &f.project {
-                        ("Project".to_string(), truncate(&project.name, max_width), project.id.clone())
+                        (
+                            "Project".to_string(),
+                            truncate(&project.name, max_width),
+                            project.id.clone(),
+                        )
                     } else {
                         ("Project".to_string(), "-".to_string(), f.id.clone())
                     }
                 }
                 Some("label") => {
                     if let Some(label) = &f.label {
-                        ("Label".to_string(), truncate(&label.name, max_width), label.id.clone())
+                        (
+                            "Label".to_string(),
+                            truncate(&label.name, max_width),
+                            label.id.clone(),
+                        )
                     } else {
                         ("Label".to_string(), "-".to_string(), f.id.clone())
                     }
@@ -166,21 +180,33 @@ async fn list_favorites(output: &OutputOptions) -> Result<()> {
                         } else {
                             display_name.to_string()
                         };
-                        ("Cycle".to_string(), truncate(&display_name, max_width), cycle.id.clone())
+                        (
+                            "Cycle".to_string(),
+                            truncate(&display_name, max_width),
+                            cycle.id.clone(),
+                        )
                     } else {
                         ("Cycle".to_string(), "-".to_string(), f.id.clone())
                     }
                 }
                 Some("document") => {
                     if let Some(doc) = &f.document {
-                        ("Document".to_string(), truncate(&doc.title, max_width), doc.id.clone())
+                        (
+                            "Document".to_string(),
+                            truncate(&doc.title, max_width),
+                            doc.id.clone(),
+                        )
                     } else {
                         ("Document".to_string(), "-".to_string(), f.id.clone())
                     }
                 }
                 Some("customView") => {
                     if let Some(view) = &f.custom_view {
-                        ("View".to_string(), truncate(&view.name, max_width), view.id.clone())
+                        (
+                            "View".to_string(),
+                            truncate(&view.name, max_width),
+                            view.id.clone(),
+                        )
                     } else {
                         ("View".to_string(), "-".to_string(), f.id.clone())
                     }
@@ -189,11 +215,7 @@ async fn list_favorites(output: &OutputOptions) -> Result<()> {
                 None => ("Unknown".to_string(), "-".to_string(), f.id.clone()),
             };
 
-            FavoriteRow {
-                fav_type,
-                name,
-                id,
-            }
+            FavoriteRow { fav_type, name, id }
         })
         .collect();
 
@@ -389,7 +411,10 @@ mod tests {
         }"#;
         let fav: Favorite = serde_json::from_str(json).unwrap();
         assert_eq!(fav.favorite_type.as_deref(), Some("cycle"));
-        assert_eq!(fav.cycle.as_ref().unwrap().name.as_deref(), Some("Sprint 5"));
+        assert_eq!(
+            fav.cycle.as_ref().unwrap().name.as_deref(),
+            Some("Sprint 5")
+        );
     }
 
     #[test]

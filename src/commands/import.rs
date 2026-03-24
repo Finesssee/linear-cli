@@ -4,7 +4,9 @@ use colored::Colorize;
 use futures::stream::{self, StreamExt};
 use serde_json::{json, Value};
 
-use crate::api::{resolve_label_id, resolve_state_id, resolve_team_id, resolve_user_id, LinearClient};
+use crate::api::{
+    resolve_label_id, resolve_state_id, resolve_team_id, resolve_user_id, LinearClient,
+};
 use crate::output::OutputOptions;
 
 #[derive(Subcommand, Debug)]
@@ -127,10 +129,10 @@ fn parse_csv_rows(file: &str) -> Result<Vec<ImportRow>> {
 }
 
 fn parse_json_rows(file: &str) -> Result<Vec<ImportRow>> {
-    let content =
-        std::fs::read_to_string(file).with_context(|| format!("Failed to read JSON file: {}", file))?;
-    let data: Value =
-        serde_json::from_str(&content).with_context(|| format!("Failed to parse JSON file: {}", file))?;
+    let content = std::fs::read_to_string(file)
+        .with_context(|| format!("Failed to read JSON file: {}", file))?;
+    let data: Value = serde_json::from_str(&content)
+        .with_context(|| format!("Failed to parse JSON file: {}", file))?;
 
     let items = match &data {
         Value::Array(arr) => arr.clone(),
@@ -214,7 +216,10 @@ async fn create_issues(
     );
 
     if dry_run {
-        eprintln!("{}", "[DRY RUN] Preview of issues to create:".yellow().bold());
+        eprintln!(
+            "{}",
+            "[DRY RUN] Preview of issues to create:".yellow().bold()
+        );
         for (i, row) in rows.iter().enumerate() {
             eprintln!();
             eprintln!(
@@ -295,8 +300,14 @@ async fn create_issues(
                 Err(e) => {
                     eprintln!(
                         "{}",
-                        format!("[{}/{}] Warning: Could not resolve status '{}': {}", i + 1, total, s, e)
-                            .yellow()
+                        format!(
+                            "[{}/{}] Warning: Could not resolve status '{}': {}",
+                            i + 1,
+                            total,
+                            s,
+                            e
+                        )
+                        .yellow()
                     );
                 }
             }
@@ -374,10 +385,7 @@ async fn create_issues(
                 Ok(resp) => {
                     if resp["data"]["issueCreate"]["success"].as_bool() == Some(true) {
                         let issue = &resp["data"]["issueCreate"]["issue"];
-                        let identifier = issue["identifier"]
-                            .as_str()
-                            .unwrap_or("???")
-                            .to_string();
+                        let identifier = issue["identifier"].as_str().unwrap_or("???").to_string();
                         let url = issue["url"].as_str().unwrap_or("").to_string();
                         (i, title, Ok((identifier, url)))
                     } else {
@@ -434,7 +442,13 @@ async fn create_issues(
     if failed == 0 {
         eprintln!(
             "{}",
-            format!("Created {} issue{}", created, if created == 1 { "" } else { "s" }).green().bold()
+            format!(
+                "Created {} issue{}",
+                created,
+                if created == 1 { "" } else { "s" }
+            )
+            .green()
+            .bold()
         );
     } else {
         eprintln!(

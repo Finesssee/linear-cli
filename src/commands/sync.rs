@@ -105,7 +105,15 @@ pub async fn handle(cmd: SyncCommands, output: &OutputOptions) -> Result<()> {
             include_local_path,
         } => {
             let dry_run = dry_run || output.dry_run;
-            push_command(directory, team, only, dry_run, include_local_path, &output.cache).await
+            push_command(
+                directory,
+                team,
+                only,
+                dry_run,
+                include_local_path,
+                &output.cache,
+            )
+            .await
         }
     }
 }

@@ -90,7 +90,15 @@ pub async fn handle(cmd: MilestoneCommands, output: &OutputOptions) -> Result<()
             target_date,
             sort_order,
         } => {
-            create_milestone(&name, &project, description, target_date, sort_order, output).await
+            create_milestone(
+                &name,
+                &project,
+                description,
+                target_date,
+                sort_order,
+                output,
+            )
+            .await
         }
         MilestoneCommands::Update {
             id,
@@ -156,10 +164,7 @@ async fn list_milestones(project: &str, output: &OutputOptions) -> Result<()> {
         .iter()
         .map(|m| MilestoneRow {
             name: truncate(m["name"].as_str().unwrap_or(""), name_width),
-            target_date: m["targetDate"]
-                .as_str()
-                .unwrap_or("-")
-                .to_string(),
+            target_date: m["targetDate"].as_str().unwrap_or("-").to_string(),
             id: m["id"].as_str().unwrap_or("").to_string(),
         })
         .collect();
@@ -192,9 +197,7 @@ async fn get_milestone(id: &str, output: &OutputOptions) -> Result<()> {
         }
     "#;
 
-    let result = client
-        .query(query, Some(json!({ "id": id })))
-        .await?;
+    let result = client.query(query, Some(json!({ "id": id }))).await?;
     let milestone = &result["data"]["projectMilestone"];
 
     if milestone.is_null() {
@@ -326,7 +329,9 @@ async fn update_milestone(
     }
 
     if input.is_empty() {
-        anyhow::bail!("No fields to update. Specify --name, --description, --target-date, or --sort-order.");
+        anyhow::bail!(
+            "No fields to update. Specify --name, --description, --target-date, or --sort-order."
+        );
     }
 
     if output.dry_run {
@@ -375,7 +380,10 @@ async fn update_milestone(
 
 async fn delete_milestone(id: &str, force: bool) -> Result<()> {
     if !force && !crate::is_yes() {
-        anyhow::bail!("Delete requires --force flag. Use: linear milestones delete {} --force", id);
+        anyhow::bail!(
+            "Delete requires --force flag. Use: linear milestones delete {} --force",
+            id
+        );
     }
 
     let client = LinearClient::new()?;
@@ -388,9 +396,7 @@ async fn delete_milestone(id: &str, force: bool) -> Result<()> {
         }
     "#;
 
-    let result = client
-        .mutate(mutation, Some(json!({ "id": id })))
-        .await?;
+    let result = client.mutate(mutation, Some(json!({ "id": id }))).await?;
 
     let success = result["data"]["projectMilestoneDelete"]["success"]
         .as_bool()

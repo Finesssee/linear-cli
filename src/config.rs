@@ -80,7 +80,9 @@ pub fn save_config(config: &Config) -> Result<()> {
     let content = toml::to_string_pretty(config)?;
 
     // Write to temp file then rename for atomicity
-    let dir = path.parent().context("Config path has no parent directory")?;
+    let dir = path
+        .parent()
+        .context("Config path has no parent directory")?;
     let temp_path = dir.join(".config.toml.tmp");
 
     #[cfg(unix)]
@@ -113,7 +115,10 @@ pub fn set_api_key(key: &str) -> Result<()> {
     let workspace_name = profile
         .or_else(|| config.current.clone())
         .unwrap_or_else(|| "default".to_string());
-    let existing_oauth = config.workspaces.get(&workspace_name).and_then(|w| w.oauth.clone());
+    let existing_oauth = config
+        .workspaces
+        .get(&workspace_name)
+        .and_then(|w| w.oauth.clone());
     config.workspaces.insert(
         workspace_name.clone(),
         Workspace {
@@ -396,8 +401,13 @@ pub fn workspace_remove(name: &str) -> Result<()> {
 /// Save OAuth config for a profile
 pub fn save_oauth_config(profile: &str, oauth_config: &OAuthConfig) -> Result<()> {
     let mut config = load_config()?;
-    let workspace = config.workspaces.entry(profile.to_string())
-        .or_insert_with(|| Workspace { api_key: String::new(), oauth: None });
+    let workspace = config
+        .workspaces
+        .entry(profile.to_string())
+        .or_insert_with(|| Workspace {
+            api_key: String::new(),
+            oauth: None,
+        });
     workspace.oauth = Some(oauth_config.clone());
     if config.current.is_none() {
         config.current = Some(profile.to_string());
@@ -415,6 +425,7 @@ fn oauth_config_has_secrets(oauth_config: &OAuthConfig) -> bool {
             .unwrap_or(false)
 }
 
+#[cfg(feature = "secure-storage")]
 fn oauth_metadata_only(oauth_config: &OAuthConfig) -> OAuthConfig {
     OAuthConfig {
         client_id: oauth_config.client_id.clone(),
@@ -708,7 +719,10 @@ mod tests {
         );
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
-        assert!(!toml_str.contains("[workspaces.default.oauth]"), "oauth section should not appear when None");
+        assert!(
+            !toml_str.contains("[workspaces.default.oauth]"),
+            "oauth section should not appear when None"
+        );
         assert!(!toml_str.contains("client_id"));
         assert!(!toml_str.contains("access_token"));
     }
@@ -729,7 +743,10 @@ mod tests {
 
         let config: Config = toml::from_str(toml_str).unwrap();
         let oauth = config.workspaces["test"].oauth.as_ref().unwrap();
-        assert!(oauth.scopes.is_empty(), "scopes should default to empty vec");
+        assert!(
+            oauth.scopes.is_empty(),
+            "scopes should default to empty vec"
+        );
         assert!(oauth.refresh_token.is_none());
         assert!(oauth.expires_at.is_none());
     }
@@ -742,7 +759,11 @@ mod tests {
             refresh_token: Some("refresh".to_string()),
             expires_at: Some(1700086400),
             token_type: "Bearer".to_string(),
-            scopes: vec!["read".to_string(), "write".to_string(), "issues:create".to_string()],
+            scopes: vec![
+                "read".to_string(),
+                "write".to_string(),
+                "issues:create".to_string(),
+            ],
         };
         let json = serde_json::to_string(&oauth).unwrap();
         let parsed: OAuthConfig = serde_json::from_str(&json).unwrap();

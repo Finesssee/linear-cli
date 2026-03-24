@@ -52,7 +52,9 @@ async fn cycle_metrics(id: &str, team: Option<String>, output: &OutputOptions) -
                     }
                 }
             "#;
-            let result = client.query(lookup_query, Some(json!({ "teamId": team_id }))).await?;
+            let result = client
+                .query(lookup_query, Some(json!({ "teamId": team_id })))
+                .await?;
             let num: u64 = id.parse().unwrap();
             result["data"]["team"]["cycles"]["nodes"]
                 .as_array()

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Subcommand;
 use serde_json::{json, Map, Value};
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, IsTerminal};
 
 use crate::api::LinearClient;
 use crate::output::{print_json_owned, OutputOptions};
@@ -14,10 +14,11 @@ pub enum ApiCommands {
     linear api query '{ viewer { id name email } }'
     linear api query '{ teams { nodes { id key name } } }'
     linear api query -v teamId=abc123 'query($teamId: String!) { team(id: $teamId) { name } }'
+    echo '{ viewer { id } }' | linear api query
     echo '{ viewer { id } }' | linear api query -"#)]
     Query {
-        /// GraphQL query string. Use "-" to read from stdin.
-        query: String,
+        /// GraphQL query string. Use "-" to read from stdin, or omit when piping.
+        query: Option<String>,
 
         /// Variables as key=value pairs (e.g. -v id=abc123 -v name=test)
         #[arg(short = 'v', long = "variable", value_name = "KEY=VALUE")]
@@ -39,10 +40,11 @@ pub enum ApiCommands {
     #[command(after_help = r#"EXAMPLES:
     linear api mutate -v title="New Issue" -v teamId=abc123 \
         'mutation($title: String!, $teamId: String!) { issueCreate(input: { title: $title, teamId: $teamId }) { issue { id identifier } } }'
-    cat mutation.graphql | linear api mutate -v id=abc123 -"#)]
+    cat mutation.graphql | linear api mutate -
+    echo '...' | linear api mutate"#)]
     Mutate {
-        /// GraphQL mutation string. Use "-" to read from stdin.
-        query: String,
+        /// GraphQL mutation string. Use "-" to read from stdin, or omit when piping.
+        query: Option<String>,
 
         /// Variables as key=value pairs (e.g. -v id=abc123 -v name=test)
         #[arg(short = 'v', long = "variable", value_name = "KEY=VALUE")]
@@ -58,16 +60,57 @@ pub async fn handle(cmd: ApiCommands, output: &OutputOptions) -> Result<()> {
             paginate,
             nodes_path,
             page_info_path,
-        } => run_query(&query, &variables, paginate, &nodes_path, &page_info_path, output).await,
-        ApiCommands::Mutate { query, variables } => run_mutate(&query, &variables, output).await,
+        } => {
+            let resolved = resolve_query_source(query)?;
+            run_query(
+                &resolved,
+                &variables,
+                paginate,
+                &nodes_path,
+                &page_info_path,
+                output,
+            )
+            .await
+        }
+        ApiCommands::Mutate { query, variables } => {
+            let resolved = resolve_query_source(query)?;
+            run_mutate(&resolved, &variables, output).await
+        }
     }
+}
+
+/// Resolve the GraphQL query source: explicit string, "-" for stdin, or auto-detect piped stdin.
+fn resolve_query_source(query: Option<String>) -> Result<String> {
+    match query {
+        Some(q) if q == "-" => read_stdin(),
+        Some(q) => Ok(q),
+        None => {
+            if !io::stdin().is_terminal() {
+                read_stdin()
+            } else {
+                anyhow::bail!(
+                    "No query provided. Pass a GraphQL query string as an argument, \
+                     or pipe one via stdin:\n  \
+                     echo '{{ viewer {{ id }} }}' | linear-cli api query"
+                )
+            }
+        }
+    }
+}
+
+fn read_stdin() -> Result<String> {
+    let stdin = io::stdin();
+    let lines: Vec<String> = stdin.lock().lines().map_while(Result::ok).collect();
+    let query = lines.join("\n");
+    if query.trim().is_empty() {
+        anyhow::bail!("Empty query received from stdin");
+    }
+    Ok(query)
 }
 
 fn read_query(input: &str) -> Result<String> {
     if input == "-" {
-        let stdin = io::stdin();
-        let lines: Vec<String> = stdin.lock().lines().map_while(Result::ok).collect();
-        Ok(lines.join("\n"))
+        read_stdin()
     } else {
         Ok(input.to_string())
     }
@@ -161,11 +204,7 @@ async fn run_query(
     Ok(())
 }
 
-async fn run_mutate(
-    query_str: &str,
-    variables: &[String],
-    output: &OutputOptions,
-) -> Result<()> {
+async fn run_mutate(query_str: &str, variables: &[String], output: &OutputOptions) -> Result<()> {
     let query = read_query(query_str)?;
     let vars = parse_variables(variables)?;
     let client = LinearClient::new()?;
@@ -237,5 +276,20 @@ mod tests {
     fn test_read_query_direct() {
         let q = read_query("{ viewer { id } }").unwrap();
         assert_eq!(q, "{ viewer { id } }");
+    }
+
+    #[test]
+    fn test_resolve_query_source_explicit() {
+        let q = resolve_query_source(Some("{ viewer { id } }".to_string())).unwrap();
+        assert_eq!(q, "{ viewer { id } }");
+    }
+
+    #[test]
+    fn test_resolve_query_source_none_tty() {
+        // When stdin is a TTY and no query provided, should error
+        // In test environment stdin is usually not a TTY, so this may read empty stdin
+        // and return an error either way
+        let result = resolve_query_source(None);
+        assert!(result.is_err());
     }
 }

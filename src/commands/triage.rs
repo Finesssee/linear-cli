@@ -149,9 +149,7 @@ async fn claim_issue(id: &str, output: &OutputOptions) -> Result<()> {
         }
     "#;
 
-    let issue_result = client
-        .query(issue_query, Some(json!({ "id": id })))
-        .await?;
+    let issue_result = client.query(issue_query, Some(json!({ "id": id }))).await?;
     let issue_data = &issue_result["data"]["issue"];
 
     if issue_data.is_null() {

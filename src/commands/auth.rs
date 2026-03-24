@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Subcommand;
 use dialoguer::{Confirm, Password};
 use serde_json::json;
@@ -258,9 +258,12 @@ async fn status(validate: bool, output: &OutputOptions) -> Result<()> {
                 validated = match client {
                     Ok(c) => {
                         let query = r#"query { viewer { id } }"#;
-                        Some(c.query(query, None).await
-                            .map(|r| !r["data"]["viewer"].is_null())
-                            .unwrap_or(false))
+                        Some(
+                            c.query(query, None)
+                                .await
+                                .map(|r| !r["data"]["viewer"].is_null())
+                                .unwrap_or(false),
+                        )
                     }
                     Err(_) => Some(false),
                 };
@@ -321,7 +324,11 @@ async fn status(validate: bool, output: &OutputOptions) -> Result<()> {
     );
     println!(
         "OAuth keyring: {}",
-        if oauth_keyring_configured { "yes" } else { "no" }
+        if oauth_keyring_configured {
+            "yes"
+        } else {
+            "no"
+        }
     );
     println!(
         "Env API key override: {}",
@@ -484,7 +491,8 @@ async fn oauth_login(
     let state = oauth::generate_state();
 
     // Build authorization URL
-    let authorize_url = oauth::build_authorize_url(&client_id, &redirect_uri, &scopes, &state, &pkce)?;
+    let authorize_url =
+        oauth::build_authorize_url(&client_id, &redirect_uri, &scopes, &state, &pkce)?;
 
     println!("Opening browser for Linear OAuth authentication...");
     println!("If the browser doesn't open, visit this URL:");
@@ -493,7 +501,10 @@ async fn oauth_login(
 
     // Open browser
     if let Err(e) = open::that(&authorize_url) {
-        eprintln!("Failed to open browser: {}. Please open the URL above manually.", e);
+        eprintln!(
+            "Failed to open browser: {}. Please open the URL above manually.",
+            e
+        );
     }
 
     // Wait for callback
@@ -598,16 +609,16 @@ async fn revoke(force: bool, output: &OutputOptions) -> Result<()> {
     let oauth_config = match oauth_config {
         Some(c) => c,
         None => {
-            anyhow::bail!("No OAuth tokens found for profile '{}'. Use 'auth oauth' to authenticate.", profile);
+            anyhow::bail!(
+                "No OAuth tokens found for profile '{}'. Use 'auth oauth' to authenticate.",
+                profile
+            );
         }
     };
 
     if !force && !crate::is_yes() {
         let confirmed = Confirm::new()
-            .with_prompt(format!(
-                "Revoke OAuth tokens for profile '{}'?",
-                profile
-            ))
+            .with_prompt(format!("Revoke OAuth tokens for profile '{}'?", profile))
             .default(false)
             .interact()?;
         if !confirmed {

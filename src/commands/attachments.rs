@@ -122,9 +122,7 @@ async fn resolve_issue_uuid(client: &LinearClient, issue: &str) -> Result<String
         }
     "#;
 
-    let result = client
-        .query(query, Some(json!({ "id": issue })))
-        .await?;
+    let result = client.query(query, Some(json!({ "id": issue }))).await?;
     let id = result["data"]["issue"]["id"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("Issue not found: {}", issue))?;
@@ -153,9 +151,7 @@ async fn list_attachments(issue: &str, output: &OutputOptions) -> Result<()> {
         }
     "#;
 
-    let result = client
-        .query(query, Some(json!({ "id": issue })))
-        .await?;
+    let result = client.query(query, Some(json!({ "id": issue }))).await?;
     let issue_data = &result["data"]["issue"];
 
     if issue_data.is_null() {
@@ -203,10 +199,7 @@ async fn list_attachments(issue: &str, output: &OutputOptions) -> Result<()> {
         .map(|v| AttachmentRow {
             title: truncate(v["title"].as_str().unwrap_or("-"), width),
             url: truncate(v["url"].as_str().unwrap_or("-"), width),
-            source: v["sourceType"]
-                .as_str()
-                .unwrap_or("-")
-                .to_string(),
+            source: v["sourceType"].as_str().unwrap_or("-").to_string(),
             id: v["id"].as_str().unwrap_or("").to_string(),
         })
         .collect();
@@ -238,9 +231,7 @@ async fn get_attachment(id: &str, output: &OutputOptions) -> Result<()> {
         }
     "#;
 
-    let result = client
-        .query(query, Some(json!({ "id": id })))
-        .await?;
+    let result = client.query(query, Some(json!({ "id": id }))).await?;
     let raw = &result["data"]["attachment"];
 
     if raw.is_null() {
@@ -416,9 +407,7 @@ async fn delete_attachment(id: &str, force: bool) -> Result<()> {
         }
     "#;
 
-    let result = client
-        .mutate(mutation, Some(json!({ "id": id })))
-        .await?;
+    let result = client.mutate(mutation, Some(json!({ "id": id }))).await?;
 
     if result["data"]["attachmentDelete"]["success"]
         .as_bool()
@@ -466,10 +455,7 @@ async fn link_url(
             print_json(attachment, output)?;
             return Ok(());
         }
-        println!(
-            "{} URL linked to issue",
-            "+".green()
-        );
+        println!("{} URL linked to issue", "+".green());
         println!("  ID: {}", attachment["id"].as_str().unwrap_or(""));
         println!("  Title: {}", attachment["title"].as_str().unwrap_or("-"));
         println!("  URL: {}", attachment["url"].as_str().unwrap_or(""));

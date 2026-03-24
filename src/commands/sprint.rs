@@ -66,7 +66,11 @@ pub async fn handle(cmd: SprintCommands, output: &OutputOptions) -> Result<()> {
         SprintCommands::Progress { team } => sprint_progress(&team, output).await,
         SprintCommands::Plan { team } => sprint_plan(&team, output).await,
         SprintCommands::CarryOver { team, force } => sprint_carry_over(&team, force, output).await,
-        SprintCommands::Burndown { team, width, height } => burndown(&team, width, height, output).await,
+        SprintCommands::Burndown {
+            team,
+            width,
+            height,
+        } => burndown(&team, width, height, output).await,
         SprintCommands::Velocity { team, count } => velocity(&team, count, output).await,
     }
 }
@@ -113,10 +117,7 @@ async fn sprint_status(team: &str, output: &OutputOptions) -> Result<()> {
 
     if cycle.is_null() {
         if output.is_json() || output.has_template() {
-            print_json_owned(
-                json!({ "team": team_name, "activeCycle": null }),
-                output,
-            )?;
+            print_json_owned(json!({ "team": team_name, "activeCycle": null }), output)?;
         } else {
             println!("No active cycle for team '{}'.", team_name);
         }
@@ -196,10 +197,7 @@ async fn sprint_status(team: &str, output: &OutputOptions) -> Result<()> {
 
     // Show estimate totals if any issues have estimates
     if let Some(issues) = issues {
-        let total_estimate: f64 = issues
-            .iter()
-            .filter_map(|i| i["estimate"].as_f64())
-            .sum();
+        let total_estimate: f64 = issues.iter().filter_map(|i| i["estimate"].as_f64()).sum();
         let completed_estimate: f64 = issues
             .iter()
             .filter(|i| i["state"]["type"].as_str() == Some("completed"))
@@ -327,7 +325,11 @@ async fn sprint_progress(team: &str, output: &OutputOptions) -> Result<()> {
 
     println!(
         "Sprint {}: {} {:.0}% ({}/{} issues)",
-        cycle_number, bar, progress * 100.0, completed, total
+        cycle_number,
+        bar,
+        progress * 100.0,
+        completed,
+        total
     );
     println!(
         "  Completed: {}  In Progress: {}  Todo: {}",
@@ -338,10 +340,7 @@ async fn sprint_progress(team: &str, output: &OutputOptions) -> Result<()> {
 
     // Estimate summary
     if let Some(issues) = issues {
-        let total_estimate: f64 = issues
-            .iter()
-            .filter_map(|i| i["estimate"].as_f64())
-            .sum();
+        let total_estimate: f64 = issues.iter().filter_map(|i| i["estimate"].as_f64()).sum();
         let completed_estimate: f64 = issues
             .iter()
             .filter(|i| i["state"]["type"].as_str() == Some("completed"))
@@ -400,10 +399,7 @@ async fn sprint_plan(team: &str, output: &OutputOptions) -> Result<()> {
 
     if next_cycle.is_none() {
         if output.is_json() || output.has_template() {
-            print_json_owned(
-                json!({ "team": team_name, "nextCycle": null }),
-                output,
-            )?;
+            print_json_owned(json!({ "team": team_name, "nextCycle": null }), output)?;
         } else {
             println!("No upcoming cycle for team '{}'.", team_name);
         }
@@ -444,10 +440,7 @@ async fn sprint_plan(team: &str, output: &OutputOptions) -> Result<()> {
         if issues.is_empty() {
             println!("\nNo issues planned yet.");
         } else {
-            let total_estimate: f64 = issues
-                .iter()
-                .filter_map(|i| i["estimate"].as_f64())
-                .sum();
+            let total_estimate: f64 = issues.iter().filter_map(|i| i["estimate"].as_f64()).sum();
 
             println!("\n{} ({} issues)", "Planned Issues:".bold(), issues.len());
             if total_estimate > 0.0 {
@@ -695,10 +688,7 @@ async fn burndown(team: &str, width: usize, height: usize, output: &OutputOption
 
     if cycle.is_null() {
         if output.is_json() || output.has_template() {
-            print_json_owned(
-                json!({ "team": team_name, "activeCycle": null }),
-                output,
-            )?;
+            print_json_owned(json!({ "team": team_name, "activeCycle": null }), output)?;
         } else {
             println!("No active cycle for team '{}'.", team_name);
         }
@@ -751,14 +741,19 @@ async fn burndown(team: &str, width: usize, height: usize, output: &OutputOption
     }
 
     // Prefer scope (points) history; fall back to issue count history
-    let (scope, completed, label) = if !scope_history.is_empty() && !completed_scope_history.is_empty() {
-        (&scope_history, &completed_scope_history, "points")
-    } else if !issue_count_history.is_empty() && !completed_issue_count_history.is_empty() {
-        (&issue_count_history, &completed_issue_count_history, "issues")
-    } else {
-        println!("No burndown data available yet.");
-        return Ok(());
-    };
+    let (scope, completed, label) =
+        if !scope_history.is_empty() && !completed_scope_history.is_empty() {
+            (&scope_history, &completed_scope_history, "points")
+        } else if !issue_count_history.is_empty() && !completed_issue_count_history.is_empty() {
+            (
+                &issue_count_history,
+                &completed_issue_count_history,
+                "issues",
+            )
+        } else {
+            println!("No burndown data available yet.");
+            return Ok(());
+        };
 
     // Use the shorter length if they differ
     let len = scope.len().min(completed.len());
@@ -1078,10 +1073,7 @@ async fn velocity(team: &str, count: usize, output: &OutputOptions) -> Result<()
     }
 
     // Table output
-    println!(
-        "{}",
-        format!("Sprint Velocity - {}", team_name).bold()
-    );
+    println!("{}", format!("Sprint Velocity - {}", team_name).bold());
     println!("{}", "-".repeat(50));
 
     let rows: Vec<VelocityRow> = stats
@@ -1125,12 +1117,7 @@ async fn velocity(team: &str, count: usize, output: &OutputOptions) -> Result<()
     for s in &stats {
         let bar_len = (s.points_completed as f64 / max_points as f64 * 30.0).round() as usize;
         let bar = "\u{2588}".repeat(bar_len);
-        println!(
-            "  #{:<3} {} {}",
-            s.number,
-            bar.green(),
-            s.points_completed
-        );
+        println!("  #{:<3} {} {}", s.number, bar.green(), s.points_completed);
     }
 
     // Summary stats

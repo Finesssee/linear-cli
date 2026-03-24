@@ -343,11 +343,19 @@ async fn get_cycle(id: &str, output: &OutputOptions) -> Result<()> {
 
     println!(
         "Start: {}",
-        cycle.starts_at.as_deref().map(|s| s.get(..10).unwrap_or(s)).unwrap_or("-")
+        cycle
+            .starts_at
+            .as_deref()
+            .map(|s| s.get(..10).unwrap_or(s))
+            .unwrap_or("-")
     );
     println!(
         "End: {}",
-        cycle.ends_at.as_deref().map(|s| s.get(..10).unwrap_or(s)).unwrap_or("-")
+        cycle
+            .ends_at
+            .as_deref()
+            .map(|s| s.get(..10).unwrap_or(s))
+            .unwrap_or("-")
     );
     println!("Progress: {:.0}%", progress * 100.0);
 
@@ -464,11 +472,19 @@ async fn current_cycle(team: &str, output: &OutputOptions) -> Result<()> {
     println!("Cycle Number: {}", cycle_number);
     println!(
         "Start Date: {}",
-        cycle.starts_at.as_deref().map(|s| s.get(..10).unwrap_or(s)).unwrap_or("-")
+        cycle
+            .starts_at
+            .as_deref()
+            .map(|s| s.get(..10).unwrap_or(s))
+            .unwrap_or("-")
     );
     println!(
         "End Date: {}",
-        cycle.ends_at.as_deref().map(|s| s.get(..10).unwrap_or(s)).unwrap_or("-")
+        cycle
+            .ends_at
+            .as_deref()
+            .map(|s| s.get(..10).unwrap_or(s))
+            .unwrap_or("-")
     );
     println!("Progress: {:.0}%", progress * 100.0);
     println!("ID: {}", cycle.id);
@@ -649,7 +665,10 @@ async fn update_cycle(
 
 async fn delete_cycle(id: &str, force: bool) -> Result<()> {
     if !force && !crate::is_yes() {
-        anyhow::bail!("Delete requires --force flag. Use: linear cycles delete {} --force", id);
+        anyhow::bail!(
+            "Delete requires --force flag. Use: linear cycles delete {} --force",
+            id
+        );
     }
 
     let client = LinearClient::new()?;
@@ -662,9 +681,7 @@ async fn delete_cycle(id: &str, force: bool) -> Result<()> {
         }
     "#;
 
-    let result = client
-        .mutate(mutation, Some(json!({ "id": id })))
-        .await?;
+    let result = client.mutate(mutation, Some(json!({ "id": id }))).await?;
 
     let success = result["data"]["cycleDelete"]["success"]
         .as_bool()
@@ -710,7 +727,11 @@ async fn complete_cycle(id: &str, output: &OutputOptions) -> Result<()> {
             .as_str()
             .filter(|s| !s.is_empty())
             .unwrap_or("cycle");
-        println!("{} Cycle '{}' marked as completed", "+".green(), display_name);
+        println!(
+            "{} Cycle '{}' marked as completed",
+            "+".green(),
+            display_name
+        );
     } else {
         anyhow::bail!("Failed to complete cycle");
     }
