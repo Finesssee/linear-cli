@@ -17,7 +17,7 @@ use crate::output::{
 };
 use crate::pagination::{paginate_nodes, stream_nodes};
 use crate::priority::priority_to_string;
-use crate::text::truncate;
+use crate::text::{is_uuid, truncate};
 use crate::vcs::{generate_branch_name, git_branch_exists, run_git_command, validate_branch_name};
 use crate::AgentOptions;
 
@@ -493,6 +493,18 @@ pub async fn handle(
     }
 }
 
+fn build_issue_assignee_filter(assignee: &str) -> Value {
+    if assignee.eq_ignore_ascii_case("me") {
+        json!({ "isMe": { "eq": true } })
+    } else if is_uuid(assignee) {
+        json!({ "id": { "eq": assignee } })
+    } else if assignee.contains('@') {
+        json!({ "email": { "eqIgnoreCase": assignee } })
+    } else {
+        json!({ "name": { "eqIgnoreCase": assignee } })
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn list_issues(
     team: Option<String>,
@@ -585,7 +597,7 @@ async fn list_issues(
         filter["state"] = json!({ "name": { "eqIgnoreCase": s } });
     }
     if let Some(a) = assignee {
-        filter["assignee"] = json!({ "name": { "eqIgnoreCase": a } });
+        filter["assignee"] = build_issue_assignee_filter(&a);
     }
     if let Some(p) = project {
         filter["project"] = json!({ "name": { "eqIgnoreCase": p } });
@@ -2320,5 +2332,40 @@ mod tests {
     fn test_format_history_archived() {
         let entry = serde_json::json!({ "archived": true });
         assert_eq!(format_history_entry(&entry), "Archived");
+    }
+
+    #[test]
+    fn test_build_issue_assignee_filter_for_me() {
+        assert_eq!(
+            build_issue_assignee_filter("me"),
+            serde_json::json!({ "isMe": { "eq": true } })
+        );
+    }
+
+    #[test]
+    fn test_build_issue_assignee_filter_for_uuid() {
+        let user_id = "123e4567-e89b-12d3-a456-426614174000";
+        assert_eq!(
+            build_issue_assignee_filter(user_id),
+            serde_json::json!({ "id": { "eq": user_id } })
+        );
+    }
+
+    #[test]
+    fn test_build_issue_assignee_filter_for_email() {
+        let email = "alice@example.com";
+        assert_eq!(
+            build_issue_assignee_filter(email),
+            serde_json::json!({ "email": { "eqIgnoreCase": email } })
+        );
+    }
+
+    #[test]
+    fn test_build_issue_assignee_filter_for_name() {
+        let name = "Alice";
+        assert_eq!(
+            build_issue_assignee_filter(name),
+            serde_json::json!({ "name": { "eqIgnoreCase": name } })
+        );
     }
 }
