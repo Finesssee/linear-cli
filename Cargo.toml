@@ -1,6 +1,6 @@
 [package]
 name = "linear-cli"
-version = "0.3.16"
+version = "0.3.17"
 edition = "2021"
 description = "A powerful CLI for Linear.app - manage issues, projects, cycles, and more from your terminal"
 authors = ["scwrcd"]
@@ -19,7 +19,7 @@ path = "src/main.rs"
 clap = { version = "4", features = ["derive", "env"] }
 clap_complete = "4"
 tokio = { version = "1", features = ["full"] }
-reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["charset", "http2", "json", "rustls-tls", "stream", "system-proxy"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 colored = "2"
