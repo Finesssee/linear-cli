@@ -3,6 +3,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::{BufRead, BufReader, Write};
+use std::time::Duration;
 use tokio::net::TcpListener;
 
 const LINEAR_AUTHORIZE_URL: &str = "https://linear.app/oauth/authorize";
@@ -61,6 +62,26 @@ fn escape_html(input: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
+}
+
+fn oauth_request_timeout() -> Duration {
+    Duration::from_secs(30)
+}
+
+fn oauth_connect_timeout() -> Duration {
+    Duration::from_secs(10)
+}
+
+fn oauth_http_client() -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .timeout(oauth_request_timeout())
+        .connect_timeout(oauth_connect_timeout())
+        .build()
+        .context("Failed to build OAuth HTTP client")
+}
+
+fn is_expected_callback_path(path: &str) -> bool {
+    path.split_once('?').map(|(base, _)| base).unwrap_or(path) == "/callback"
 }
 
 /// Build the authorization URL for Linear OAuth
@@ -127,7 +148,7 @@ pub async fn wait_for_callback(port: u16, expected_state: &str) -> Result<String
         anyhow::bail!("OAuth callback received non-GET request: {}", method);
     }
 
-    if !path.starts_with("/callback") {
+    if !is_expected_callback_path(path) {
         let response = "HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\n\r\n\
              <html><body><h2>Not Found</h2>\
              <p>Expected /callback path.</p></body></html>";
@@ -196,7 +217,7 @@ pub async fn exchange_code(
     code: &str,
     verifier: &str,
 ) -> Result<OAuthTokens> {
-    let client = reqwest::Client::new();
+    let client = oauth_http_client()?;
     let response = client
         .post(LINEAR_TOKEN_URL)
         .header("Content-Type", "application/x-www-form-urlencoded")
@@ -252,7 +273,7 @@ pub async fn exchange_code(
 
 /// Refresh an access token using a refresh token
 pub async fn refresh_tokens(client_id: &str, refresh_token: &str) -> Result<OAuthTokens> {
-    let client = reqwest::Client::new();
+    let client = oauth_http_client()?;
     let response = client
         .post(LINEAR_TOKEN_URL)
         .header("Content-Type", "application/x-www-form-urlencoded")
@@ -307,7 +328,7 @@ pub async fn refresh_tokens(client_id: &str, refresh_token: &str) -> Result<OAut
 
 /// Revoke an OAuth token
 pub async fn revoke_token(token: &str) -> Result<()> {
-    let client = reqwest::Client::new();
+    let client = oauth_http_client()?;
     let response = client
         .post(LINEAR_REVOKE_URL)
         .header("Content-Type", "application/x-www-form-urlencoded")
@@ -625,5 +646,20 @@ mod tests {
         // Known test vector: base64url("test") = "dGVzdA"
         let encoded = base64_url_encode(b"test");
         assert_eq!(encoded, "dGVzdA");
+    }
+
+    #[test]
+    fn test_is_expected_callback_path_matches_only_callback_endpoint() {
+        assert!(is_expected_callback_path("/callback"));
+        assert!(is_expected_callback_path("/callback?code=abc&state=xyz"));
+        assert!(!is_expected_callback_path("/callback/extra"));
+        assert!(!is_expected_callback_path("/callback-extra"));
+        assert!(!is_expected_callback_path("/other"));
+    }
+
+    #[test]
+    fn test_oauth_http_timeout_configuration_is_explicit() {
+        assert_eq!(oauth_request_timeout(), std::time::Duration::from_secs(30));
+        assert_eq!(oauth_connect_timeout(), std::time::Duration::from_secs(10));
     }
 }

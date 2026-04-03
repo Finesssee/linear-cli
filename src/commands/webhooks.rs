@@ -199,6 +199,10 @@ pub async fn handle(cmd: WebhookCommands, output: &OutputOptions) -> Result<()> 
     }
 }
 
+fn is_expected_webhook_path(path: &str) -> bool {
+    path.split_once('?').map(|(base, _)| base).unwrap_or(path) == "/webhook"
+}
+
 async fn list_webhooks(output: &OutputOptions) -> Result<()> {
     let client = LinearClient::new()?;
 
@@ -924,7 +928,7 @@ async fn handle_connection(
         return Ok(());
     }
 
-    if !path.starts_with("/webhook") {
+    if !is_expected_webhook_path(path) {
         let response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
         stream.write_all(response.as_bytes()).await?;
         return Ok(());
@@ -1040,5 +1044,14 @@ mod tests {
         let expected = hex::encode(mac.finalize().into_bytes());
 
         assert!(verify_signature(secret, body, &expected));
+    }
+
+    #[test]
+    fn test_is_expected_webhook_path_matches_only_webhook_endpoint() {
+        assert!(is_expected_webhook_path("/webhook"));
+        assert!(is_expected_webhook_path("/webhook?hello=world"));
+        assert!(!is_expected_webhook_path("/webhook/extra"));
+        assert!(!is_expected_webhook_path("/webhook-extra"));
+        assert!(!is_expected_webhook_path("/other"));
     }
 }

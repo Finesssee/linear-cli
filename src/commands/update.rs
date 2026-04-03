@@ -53,6 +53,23 @@ struct UpdateCommandPlan {
     display: String,
 }
 
+fn release_check_timeout() -> Duration {
+    Duration::from_secs(15)
+}
+
+fn release_check_connect_timeout() -> Duration {
+    Duration::from_secs(10)
+}
+
+fn release_check_client() -> Result<Client> {
+    Client::builder()
+        .user_agent(format!("linear-cli/{}", env!("CARGO_PKG_VERSION")))
+        .timeout(release_check_timeout())
+        .connect_timeout(release_check_connect_timeout())
+        .build()
+        .context("Failed to build update-check HTTP client")
+}
+
 pub async fn handle(check: bool, output: &OutputOptions, _agent_opts: AgentOptions) -> Result<()> {
     let mut state = load_update_state().unwrap_or_default();
     let status = fetch_update_status(&state).await?;
@@ -174,10 +191,7 @@ async fn fetch_update_status(state: &UpdateState) -> Result<UpdateStatus> {
 }
 
 async fn fetch_latest_release() -> Result<GitHubRelease> {
-    let client = Client::builder()
-        .user_agent(format!("linear-cli/{}", env!("CARGO_PKG_VERSION")))
-        .build()
-        .context("Failed to build update-check HTTP client")?;
+    let client = release_check_client()?;
 
     let release = client
         .get(RELEASE_API_URL)
@@ -595,5 +609,11 @@ mod tests {
 
         assert_eq!(state.last_seen_latest_version.as_deref(), Some("v0.3.15"));
         assert_eq!(state.skipped_version, None);
+    }
+
+    #[test]
+    fn test_release_check_timeout_configuration_is_explicit() {
+        assert_eq!(release_check_timeout(), Duration::from_secs(15));
+        assert_eq!(release_check_connect_timeout(), Duration::from_secs(10));
     }
 }
