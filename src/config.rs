@@ -402,7 +402,7 @@ fn oauth_config_has_secrets(oauth_config: &OAuthConfig) -> bool {
             .refresh_token
             .as_ref()
             .map(|token| !token.is_empty())
-        .unwrap_or(false)
+            .unwrap_or(false)
 }
 
 fn mask_api_key_for_display(api_key: &str) -> String {
@@ -791,10 +791,7 @@ mod tests {
 
     #[test]
     fn test_mask_api_key_for_display_shows_prefix_and_suffix_for_long_keys() {
-        assert_eq!(
-            mask_api_key_for_display("lin_api_prod123"),
-            "lin_***d123"
-        );
+        assert_eq!(mask_api_key_for_display("lin_api_prod123"), "lin_***d123");
     }
 
     #[test]

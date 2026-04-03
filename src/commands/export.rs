@@ -313,13 +313,13 @@ async fn export_csv(
     use std::rc::Rc;
 
     let wtr: Rc<RefCell<Writer<ExportDestination>>> = if let Some(ref path) = file {
-        Rc::new(RefCell::new(Writer::from_writer(ExportDestination::Atomic(
-            AtomicPrivateFile::create(Path::new(path))?,
-        ))))
+        Rc::new(RefCell::new(Writer::from_writer(
+            ExportDestination::Atomic(AtomicPrivateFile::create(Path::new(path))?),
+        )))
     } else {
-        Rc::new(RefCell::new(Writer::from_writer(ExportDestination::Stdout(
-            std::io::stdout(),
-        ))))
+        Rc::new(RefCell::new(Writer::from_writer(
+            ExportDestination::Stdout(std::io::stdout()),
+        )))
     };
 
     // Write CSV header
