@@ -601,10 +601,24 @@ npx skills add Finesssee/linear-cli --skill linear-workflow
 - **Multiple workspaces** with named profiles and seamless switching
 - **Reliable networking** with HTTP timeouts, jittered retries, and atomic cache writes
 
+## Security
+
+`linear-cli` is a local CLI, but it still handles sensitive credentials, exported Linear data, local webhook/OAuth listeners, and update flows that call local tooling. The short version:
+
+- API-key auth can come from `LINEAR_API_KEY`, OS keyring storage, or the config file. OAuth token storage is a separate auth path.
+- The OAuth callback server binds to `127.0.0.1` and validates `state` plus PKCE before token exchange.
+- The webhook listener defaults to `127.0.0.1`, verifies HMAC-SHA256 signatures, and enforces header/body limits.
+- Upload fetching is restricted to `https://uploads.linear.app`.
+- The update flow checks GitHub Releases and runs explicit Cargo commands without a shell. Install attempts can come from `linear-cli update` or from the interactive startup prompt path.
+
+See [SECURITY.md](SECURITY.md) for reporting guidance and [docs/security-threat-model.md](docs/security-threat-model.md) for the detailed repository threat model.
+
 ## Documentation
 
 - [Agent Skills](docs/skills.md) -- 38 skills for AI agents
 - [AI Agent Integration](docs/ai-agents.md) -- Setup for Claude Code, Cursor, Codex
+- [Security Policy](SECURITY.md) -- Reporting guidance and supported versions
+- [Threat Model](docs/security-threat-model.md) -- Repo-grounded security overview and abuse paths
 - [Usage Examples](docs/examples.md) -- Detailed command examples
 - [Workflows](docs/workflows.md) -- Common workflow patterns
 - [JSON Samples](docs/json/README.md) -- Example JSON output shapes
