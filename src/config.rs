@@ -224,11 +224,8 @@ pub fn config_get(key: &str, raw: bool) -> Result<()> {
             let api_key = get_api_key()?;
             if raw {
                 println!("{}", api_key);
-            } else if api_key.len() > 8 {
-                let masked = format!("{}***{}", &api_key[..4], &api_key[api_key.len() - 4..]);
-                println!("{}", masked);
             } else {
-                println!("lin_***");
+                println!("{}", mask_api_key_for_display(&api_key));
             }
         }
         "profile" => {
@@ -258,13 +255,7 @@ pub fn show_config() -> Result<()> {
     if let Some(current) = &config.current {
         println!("Current workspace: {}", current);
         if let Some(workspace) = config.workspaces.get(current) {
-            let key = &workspace.api_key;
-            if key.len() > 12 {
-                let masked = format!("{}...{}", &key[..8], &key[key.len() - 4..]);
-                println!("API Key: {}", masked);
-            } else {
-                println!("API Key: {}", key);
-            }
+            println!("API Key: {}", mask_api_key_for_display(&workspace.api_key));
         }
     } else {
         println!("No workspace configured. Run: linear workspace add <name>");
@@ -322,12 +313,7 @@ pub fn workspace_list() -> Result<()> {
     for (name, workspace) in &config.workspaces {
         let is_current = config.current.as_ref() == Some(name);
         let marker = if is_current { "*" } else { " " };
-        let key = &workspace.api_key;
-        let masked = if key.len() > 12 {
-            format!("{}...{}", &key[..8], &key[key.len() - 4..])
-        } else {
-            key.clone()
-        };
+        let masked = mask_api_key_for_display(&workspace.api_key);
         println!("{} {} ({})", marker, name, masked);
     }
 
@@ -360,13 +346,7 @@ pub fn workspace_current() -> Result<()> {
     if let Some(current) = &config.current {
         println!("Current workspace: {}", current);
         if let Some(workspace) = config.workspaces.get(current) {
-            let key = &workspace.api_key;
-            if key.len() > 12 {
-                let masked = format!("{}...{}", &key[..8], &key[key.len() - 4..]);
-                println!("API Key: {}", masked);
-            } else {
-                println!("API Key: {}", key);
-            }
+            println!("API Key: {}", mask_api_key_for_display(&workspace.api_key));
         }
     } else {
         println!("No workspace selected. Run: linear workspace add <name>");
@@ -422,7 +402,17 @@ fn oauth_config_has_secrets(oauth_config: &OAuthConfig) -> bool {
             .refresh_token
             .as_ref()
             .map(|token| !token.is_empty())
-            .unwrap_or(false)
+        .unwrap_or(false)
+}
+
+fn mask_api_key_for_display(api_key: &str) -> String {
+    if api_key.len() > 12 {
+        format!("{}***{}", &api_key[..4], &api_key[api_key.len() - 4..])
+    } else if api_key.starts_with("lin_") {
+        "lin_***".to_string()
+    } else {
+        "***".to_string()
+    }
 }
 
 #[cfg(feature = "secure-storage")]
@@ -792,5 +782,23 @@ mod tests {
         assert_eq!(ws.api_key, "lin_api_key_primary");
         assert!(ws.oauth.is_some());
         assert_eq!(ws.oauth.as_ref().unwrap().access_token, "oauth_tok");
+    }
+
+    #[test]
+    fn test_mask_api_key_for_display_masks_short_linear_keys() {
+        assert_eq!(mask_api_key_for_display("lin_short"), "lin_***");
+    }
+
+    #[test]
+    fn test_mask_api_key_for_display_shows_prefix_and_suffix_for_long_keys() {
+        assert_eq!(
+            mask_api_key_for_display("lin_api_prod123"),
+            "lin_***d123"
+        );
+    }
+
+    #[test]
+    fn test_mask_api_key_for_display_masks_non_linear_short_keys() {
+        assert_eq!(mask_api_key_for_display("secret"), "***");
     }
 }

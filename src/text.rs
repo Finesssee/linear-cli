@@ -1,22 +1,46 @@
+pub fn sanitize_terminal_text(input: &str) -> String {
+    use regex::Regex;
+    use std::sync::OnceLock;
+
+    static OSC_SEQUENCE: OnceLock<Regex> = OnceLock::new();
+    static CSI_SEQUENCE: OnceLock<Regex> = OnceLock::new();
+    static ESC_SEQUENCE: OnceLock<Regex> = OnceLock::new();
+
+    let osc_sequence =
+        OSC_SEQUENCE.get_or_init(|| Regex::new(r"\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)").unwrap());
+    let csi_sequence = CSI_SEQUENCE.get_or_init(|| Regex::new(r"\x1B\[[0-?]*[ -/]*[@-~]").unwrap());
+    let esc_sequence = ESC_SEQUENCE.get_or_init(|| Regex::new(r"\x1B[@-Z\\-_]").unwrap());
+
+    let without_osc = osc_sequence.replace_all(input, "");
+    let without_csi = csi_sequence.replace_all(&without_osc, "");
+    let without_esc = esc_sequence.replace_all(&without_csi, "");
+
+    without_esc
+        .chars()
+        .filter(|ch| !ch.is_control() || matches!(ch, '\n' | '\t'))
+        .collect()
+}
+
 pub fn truncate(value: &str, max_len: Option<usize>) -> String {
+    let sanitized = sanitize_terminal_text(value);
     let Some(max_len) = max_len else {
-        return value.to_string();
+        return sanitized;
     };
     if max_len == 0 {
         return String::new();
     }
 
-    let char_count = value.chars().count();
+    let char_count = sanitized.chars().count();
     if char_count <= max_len {
-        return value.to_string();
+        return sanitized;
     }
 
     if max_len <= 3 {
-        return value.chars().take(max_len).collect();
+        return sanitized.chars().take(max_len).collect();
     }
 
     // Take (max_len - 3) chars and add ellipsis
-    let truncated: String = value.chars().take(max_len - 3).collect();
+    let truncated: String = sanitized.chars().take(max_len - 3).collect();
     format!("{}...", truncated)
 }
 
@@ -83,7 +107,7 @@ pub fn strip_markdown(input: &str) -> String {
     let multi_blank = MULTI_BLANK.get_or_init(|| Regex::new(r"\n{3,}").unwrap());
     result = multi_blank.replace_all(&result, "\n\n").to_string();
 
-    result.trim().to_string()
+    sanitize_terminal_text(result.trim())
 }
 
 #[cfg(test)]
@@ -202,5 +226,23 @@ mod tests {
     #[test]
     fn test_strip_markdown_collapses_blank_lines() {
         assert_eq!(strip_markdown("a\n\n\n\nb"), "a\n\nb");
+    }
+
+    #[test]
+    fn test_truncate_strips_ansi_before_counting() {
+        assert_eq!(truncate("\u{1b}[31mhello\u{1b}[0m", Some(5)), "hello");
+    }
+
+    #[test]
+    fn test_strip_markdown_removes_terminal_control_sequences() {
+        assert_eq!(
+            strip_markdown("**hello** \u{1b}]52;c;ZXZpbA==\u{7} world"),
+            "hello  world"
+        );
+    }
+
+    #[test]
+    fn test_strip_markdown_removes_embedded_control_characters() {
+        assert_eq!(strip_markdown("ok\u{8}\u{0c}then"), "okthen");
     }
 }
