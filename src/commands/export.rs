@@ -1,9 +1,10 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Subcommand, ValueHint};
 use csv::Writer;
 use serde_json::json;
 use std::borrow::Cow;
 use std::io::Write;
+use std::path::{Path, PathBuf};
 
 use crate::api::LinearClient;
 use crate::output::OutputOptions;
@@ -11,7 +12,7 @@ use crate::pagination::{paginate_nodes, stream_nodes, PaginationOptions};
 use colored::Colorize;
 
 #[cfg(unix)]
-fn create_private_file(path: &str) -> Result<std::fs::File> {
+fn create_private_file(path: &Path) -> Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
 
     Ok(std::fs::OpenOptions::new()
@@ -23,29 +24,127 @@ fn create_private_file(path: &str) -> Result<std::fs::File> {
 }
 
 #[cfg(not(unix))]
-fn create_private_file(path: &str) -> Result<std::fs::File> {
+fn create_private_file(path: &Path) -> Result<std::fs::File> {
     Ok(std::fs::File::create(path)?)
 }
 
-#[cfg(unix)]
-fn write_private_string(path: &str, contents: &str) -> Result<()> {
-    use std::io::Write as _;
-    use std::os::unix::fs::OpenOptionsExt;
-
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(path)?;
-    file.write_all(contents.as_bytes())?;
-    file.flush()?;
-    Ok(())
+fn atomic_temp_path(path: &Path) -> Result<PathBuf> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .context("Output path must include a file name")?;
+    let unique = format!(
+        ".{}.tmp-{}-{}",
+        file_name,
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_nanos()
+    );
+    Ok(parent.join(unique))
 }
 
-#[cfg(not(unix))]
+struct AtomicPrivateFile {
+    file: Option<std::fs::File>,
+    temp_path: PathBuf,
+    final_path: PathBuf,
+    committed: bool,
+}
+
+impl AtomicPrivateFile {
+    fn create(path: &Path) -> Result<Self> {
+        let temp_path = atomic_temp_path(path)?;
+        let file = create_private_file(&temp_path)?;
+        Ok(Self {
+            file: Some(file),
+            temp_path,
+            final_path: path.to_path_buf(),
+            committed: false,
+        })
+    }
+
+    fn commit(&mut self) -> Result<()> {
+        if self.committed {
+            return Ok(());
+        }
+
+        if let Some(mut file) = self.file.take() {
+            file.flush()?;
+            file.sync_all()?;
+            drop(file);
+        }
+
+        std::fs::rename(&self.temp_path, &self.final_path)?;
+        self.committed = true;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn file_mut(&mut self) -> &mut std::fs::File {
+        self.file.as_mut().expect("atomic file should be open")
+    }
+}
+
+impl Write for AtomicPrivateFile {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.file
+            .as_mut()
+            .expect("atomic file should be open")
+            .write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.file
+            .as_mut()
+            .expect("atomic file should be open")
+            .flush()
+    }
+}
+
+impl Drop for AtomicPrivateFile {
+    fn drop(&mut self) {
+        if !self.committed {
+            let _ = self.file.take();
+            let _ = std::fs::remove_file(&self.temp_path);
+        }
+    }
+}
+
+enum ExportDestination {
+    Stdout(std::io::Stdout),
+    Atomic(AtomicPrivateFile),
+}
+
+impl ExportDestination {
+    fn commit(&mut self) -> Result<()> {
+        if let Self::Atomic(file) = self {
+            file.commit()?;
+        }
+        Ok(())
+    }
+}
+
+impl Write for ExportDestination {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            Self::Stdout(stdout) => stdout.write(buf),
+            Self::Atomic(file) => file.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            Self::Stdout(stdout) => stdout.flush(),
+            Self::Atomic(file) => file.flush(),
+        }
+    }
+}
+
 fn write_private_string(path: &str, contents: &str) -> Result<()> {
-    std::fs::write(path, contents)?;
+    let mut file = AtomicPrivateFile::create(Path::new(path))?;
+    file.write_all(contents.as_bytes())?;
+    file.commit()?;
     Ok(())
 }
 
@@ -213,12 +312,12 @@ async fn export_csv(
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    let wtr: Rc<RefCell<Writer<Box<dyn Write>>>> = if let Some(ref path) = file {
-        Rc::new(RefCell::new(Writer::from_writer(Box::new(
-            create_private_file(path)?,
+    let wtr: Rc<RefCell<Writer<ExportDestination>>> = if let Some(ref path) = file {
+        Rc::new(RefCell::new(Writer::from_writer(ExportDestination::Atomic(
+            AtomicPrivateFile::create(Path::new(path))?,
         ))))
     } else {
-        Rc::new(RefCell::new(Writer::from_writer(Box::new(
+        Rc::new(RefCell::new(Writer::from_writer(ExportDestination::Stdout(
             std::io::stdout(),
         ))))
     };
@@ -294,6 +393,13 @@ async fn export_csv(
     .await?;
 
     wtr.borrow_mut().flush()?;
+    let writer = std::rc::Rc::try_unwrap(wtr)
+        .map_err(|_| anyhow::anyhow!("Failed to recover CSV export writer"))?
+        .into_inner();
+    let mut destination = writer
+        .into_inner()
+        .map_err(|err| anyhow::anyhow!(err.into_error().to_string()))?;
+    destination.commit()?;
 
     if let Some(ref path) = file {
         eprintln!("Exported {} issues to {}", total, path);
@@ -362,10 +468,10 @@ async fn export_markdown(
     )
     .await?;
 
-    let mut output: Box<dyn Write> = if let Some(ref path) = file {
-        Box::new(create_private_file(path)?)
+    let mut output = if let Some(ref path) = file {
+        ExportDestination::Atomic(AtomicPrivateFile::create(Path::new(path))?)
     } else {
-        Box::new(std::io::stdout())
+        ExportDestination::Stdout(std::io::stdout())
     };
 
     writeln!(output, "# Issues Export\n")?;
@@ -413,6 +519,8 @@ async fn export_markdown(
         }
         writeln!(output)?;
     }
+
+    output.commit()?;
 
     if let Some(ref path) = file {
         eprintln!("Exported {} issues to {}", issues.len(), path);
@@ -592,10 +700,12 @@ async fn export_projects_csv(file: Option<String>, include_archived: bool) -> Re
     )
     .await?;
 
-    let mut wtr: Writer<Box<dyn Write>> = if let Some(ref path) = file {
-        Writer::from_writer(Box::new(create_private_file(path)?))
+    let mut wtr: Writer<ExportDestination> = if let Some(ref path) = file {
+        Writer::from_writer(ExportDestination::Atomic(AtomicPrivateFile::create(
+            Path::new(path),
+        )?))
     } else {
-        Writer::from_writer(Box::new(std::io::stdout()))
+        Writer::from_writer(ExportDestination::Stdout(std::io::stdout()))
     };
 
     wtr.write_record([
@@ -656,6 +766,10 @@ async fn export_projects_csv(file: Option<String>, include_archived: bool) -> Re
     }
 
     wtr.flush()?;
+    let mut destination = wtr
+        .into_inner()
+        .map_err(|err| anyhow::anyhow!(err.into_error().to_string()))?;
+    destination.commit()?;
 
     if let Some(ref path) = file {
         eprintln!(
@@ -665,4 +779,47 @@ async fn export_projects_csv(file: Option<String>, include_archived: bool) -> Re
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn temp_path(label: &str) -> PathBuf {
+        let unique = format!(
+            "linear-cli-export-{}-{}-{}",
+            label,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        std::env::temp_dir().join(unique)
+    }
+
+    #[test]
+    fn test_atomic_private_file_commit_replaces_destination() {
+        let path = temp_path("commit");
+        std::fs::write(&path, "old").unwrap();
+
+        let mut file = AtomicPrivateFile::create(&path).unwrap();
+        file.file_mut().write_all(b"new").unwrap();
+        file.commit().unwrap();
+
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
+    }
+
+    #[test]
+    fn test_atomic_private_file_drop_preserves_existing_destination() {
+        let path = temp_path("drop");
+        std::fs::write(&path, "old").unwrap();
+
+        let mut file = AtomicPrivateFile::create(&path).unwrap();
+        file.file_mut().write_all(b"partial").unwrap();
+        drop(file);
+
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "old");
+    }
 }
