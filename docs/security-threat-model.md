@@ -102,25 +102,25 @@ Key assets:
 ### Authentication and secret handling
 
 - **Surface:** API keys and OAuth tokens are loaded from environment variables, config storage, or OS keyring entries. Evidence: `src/config.rs`, `src/keyring.rs`, `src/commands/auth.rs`, `src/api.rs`.
-- **Mitigations present:** Config writes, cache writes, and update-state writes use atomic temp-file replacement and `0600` permissions on Unix where implemented. Export files and upload downloads are written with restrictive `0600` permissions on Unix, but they are not atomically replaced. OAuth refresh flows persist rotated tokens. Keyring-backed storage is supported through the optional `secure-storage` feature. `config get` masks the API key unless the user explicitly requests raw output, but not every config display path applies the same masking rule. Evidence: `src/config.rs`, `src/cache.rs`, `src/commands/export.rs`, `src/commands/uploads.rs`, `src/commands/update.rs`.
+- **Mitigations present:** Config writes, cache writes, update-state writes, export files, and upload downloads use atomic temp-file replacement and `0600` permissions on Unix where implemented. OAuth refresh flows persist rotated tokens. Keyring-backed storage is supported through the optional `secure-storage` feature. Human-readable config display paths consistently mask API keys unless the user explicitly requests raw secret output. Evidence: `src/config.rs`, `src/cache.rs`, `src/commands/export.rs`, `src/commands/uploads.rs`, `src/commands/update.rs`.
 - **Attacker story:** Malware or another local user reads `~/.config/linear-cli/config.toml` or exported JSON/CSV files and steals API keys or sensitive Linear content. This remains a high-severity local compromise path, with OS keyring storage reducing but not eliminating exposure.
 
 ### Network and API interactions
 
 - **Surface:** GraphQL queries and mutations to Linear, raw API commands, OAuth token exchange and refresh, upload downloads, and GitHub latest-release checks. Evidence: `src/api.rs`, `src/commands/api.rs`, `src/oauth.rs`, `src/commands/update.rs`, `src/commands/uploads.rs`.
-- **Mitigations present:** Fixed service endpoints, explicit timeouts on the main Linear API client, explicit non-retry behavior for GraphQL mutations, and upload URL validation plus redirect restrictions that only allow `https://uploads.linear.app` over the default HTTPS port. OAuth token exchange and release-check clients do not currently set the same explicit timeout policy. Evidence: `src/api.rs`, `src/oauth.rs`, `src/commands/update.rs`.
+- **Mitigations present:** Fixed service endpoints, explicit timeouts on the main Linear API client, OAuth token exchange client, and release-check client, explicit non-retry behavior for GraphQL mutations, and upload URL validation plus redirect restrictions that only allow `https://uploads.linear.app` over the default HTTPS port. The `reqwest` transport uses Rustls with platform-native certificate discovery, which preserves system-trusted roots needed in proxied environments that install local trust anchors. Evidence: `src/api.rs`, `src/oauth.rs`, `src/commands/update.rs`, `Cargo.toml`.
 - **Attacker story:** An attacker tricks a user into fetching a malicious file or abusing an upload URL as an SSRF primitive. Host, scheme, credential, and redirect validation narrow this substantially, but the CLI still streams arbitrary-size successful responses to disk or stdout, so large-download DoS remains possible.
 
 ### OAuth callback server
 
 - **Surface:** Temporary local HTTP listener used during `linear-cli auth oauth`. Evidence: `src/oauth.rs`, `src/commands/auth.rs`.
-- **Mitigations present:** The listener binds to `127.0.0.1`, only accepts a single callback connection, enforces a 5-minute overall timeout and per-read timeout, only accepts `GET` requests whose path starts with `/callback`, validates the `state` value, uses PKCE, and HTML-escapes reflected OAuth error text. Evidence: `src/oauth.rs`.
+- **Mitigations present:** The listener binds to `127.0.0.1`, only accepts a single callback connection, enforces a 5-minute overall timeout and per-read timeout, only accepts `GET` requests for the exact `/callback` endpoint, validates the `state` value, uses PKCE, and HTML-escapes reflected OAuth error text. Evidence: `src/oauth.rs`.
 - **Attacker story:** A local adversary or malicious local process tries to race the callback request or inject an attacker-controlled code value. State validation and PKCE block straightforward CSRF-style token injection, so exploitation would require stronger local compromise.
 
 ### Webhook listener
 
 - **Surface:** Optional local HTTP listener for `linear-cli webhooks listen`, with a configurable bind address and optional public tunnel URL. Evidence: `src/commands/webhooks.rs`.
-- **Mitigations present:** HMAC-SHA256 verification via `linear-signature`, constant-time verification through the HMAC implementation, `POST`-only handling for paths that start with `/webhook`, 8 KB header limit, 1 MB body limit, read timeouts, JSON parsing checks, and cleanup of the temporary Linear webhook on shutdown or some startup failures. Evidence: `src/commands/webhooks.rs`.
+- **Mitigations present:** HMAC-SHA256 verification via `linear-signature`, constant-time verification through the HMAC implementation, `POST`-only handling for the exact `/webhook` endpoint, 8 KB header limit, 1 MB body limit, read timeouts, JSON parsing checks, and cleanup of the temporary Linear webhook on shutdown or some startup failures. Evidence: `src/commands/webhooks.rs`.
 - **Attacker story:** If a user binds to `0.0.0.0` behind a public tunnel, an attacker can send repeated connection attempts or oversized requests to consume local resources. Signature checks prevent forged event processing, but availability remains a medium-risk concern for long-running listeners exposed to the internet.
 
 ### External command execution and VCS integration
@@ -138,7 +138,7 @@ Key assets:
 ### Output rendering and terminal safety
 
 - **Surface:** Human-oriented command output prints issue titles, descriptions, comments, webhook data, and other workspace-controlled strings directly to the terminal. Evidence: `src/output.rs`, `src/text.rs`, multiple command handlers such as `src/commands/issues.rs` and `src/commands/webhooks.rs`.
-- **Mitigations present:** Markdown stripping exists for some text rendering, but there is no general ANSI or terminal control-sequence neutralization layer before printing untrusted workspace content. Evidence: `src/text.rs`.
+- **Mitigations present:** Markdown stripping and terminal-control neutralization run before human-oriented rendering paths print untrusted workspace content, which reduces ANSI escape and control-sequence abuse in normal CLI output. Evidence: `src/text.rs`.
 - **Attacker story:** A malicious workspace member creates issue titles or descriptions containing escape sequences that spoof prompts, rewrite terminal lines, or attempt clipboard-oriented escape abuse in capable terminals. This is a medium-severity local display and operator-trust issue rather than a server-side compromise.
 
 ### Update workflow
