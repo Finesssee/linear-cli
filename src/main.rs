@@ -1256,31 +1256,8 @@ fn setup_pager() -> Option<PagerGuard> {
     }
 
     let pager_cmd = std::env::var("PAGER").unwrap_or_else(|_| "less".to_string());
-    if pager_cmd == "cat" || pager_cmd.is_empty() {
-        return None;
-    }
-
-    // Parse pager command and allow only well-known pager executables.
-    let (program, args) = {
-        let mut parts = pager_cmd.split_whitespace();
-        let program = parts.next()?.to_string();
-        let args: Vec<String> = parts.map(|part| part.to_string()).collect();
-        let basename = std::path::Path::new(&program)
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or(program.as_str());
-        let trusted = ["less", "more", "most", "bat", "cat"];
-        if trusted.contains(&basename) {
-            (program, args)
-        } else {
-            eprintln!(
-                "Ignoring untrusted PAGER '{}'; falling back to less",
-                pager_cmd
-            );
-            ("less".to_string(), Vec::new())
-        }
-    };
-    if program == "cat" {
+    let (program, args) = resolve_pager_command(&pager_cmd);
+    if program == "cat" || program.is_empty() {
         return None;
     }
 
@@ -1327,6 +1304,32 @@ fn setup_pager() -> Option<PagerGuard> {
         let _ = child.kill();
         None
     }
+}
+
+fn resolve_pager_command(pager_cmd: &str) -> (String, Vec<String>) {
+    let pager_cmd = pager_cmd.trim();
+    if pager_cmd.is_empty() {
+        return (String::new(), Vec::new());
+    }
+
+    let mut parts = pager_cmd.split_whitespace();
+    let Some(program) = parts.next() else {
+        return (String::new(), Vec::new());
+    };
+
+    let trusted = ["less", "more", "most", "bat", "cat"];
+    let has_path_component = std::path::Path::new(program).components().count() > 1;
+
+    if trusted.contains(&program) && !has_path_component {
+        let args = parts.map(|part| part.to_string()).collect();
+        return (program.to_string(), args);
+    }
+
+    eprintln!(
+        "Ignoring untrusted PAGER '{}'; falling back to less",
+        pager_cmd
+    );
+    ("less".to_string(), Vec::new())
 }
 
 /// Guard that waits for the pager process to exit when dropped
@@ -1533,6 +1536,27 @@ mod tests {
     fn test_sanitize_completion_value_keeps_common_identifiers() {
         let value = "LIN-123 team_alpha/user@example.com";
         assert_eq!(sanitize_completion_value(value), value);
+    }
+
+    #[test]
+    fn test_resolve_pager_command_allows_known_bare_program() {
+        let (program, args) = resolve_pager_command("less -R -F");
+        assert_eq!(program, "less");
+        assert_eq!(args, vec!["-R", "-F"]);
+    }
+
+    #[test]
+    fn test_resolve_pager_command_rejects_absolute_path_bypass() {
+        let (program, args) = resolve_pager_command("/tmp/evil/less --steal");
+        assert_eq!(program, "less");
+        assert!(args.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_pager_command_rejects_relative_path_bypass() {
+        let (program, args) = resolve_pager_command("./less");
+        assert_eq!(program, "less");
+        assert!(args.is_empty());
     }
 }
 
