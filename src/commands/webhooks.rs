@@ -2,7 +2,9 @@ use anyhow::{Context, Result};
 use clap::Subcommand;
 use colored::Colorize;
 use serde_json::json;
+use std::sync::Arc;
 use tabled::{Table, Tabled};
+use tokio::sync::Semaphore;
 
 use crate::api::{resolve_team_id, LinearClient};
 use crate::display_options;
@@ -202,6 +204,12 @@ pub async fn handle(cmd: WebhookCommands, output: &OutputOptions) -> Result<()> 
 fn is_expected_webhook_path(path: &str) -> bool {
     path.split_once('?').map(|(base, _)| base).unwrap_or(path) == "/webhook"
 }
+
+fn safe_terminal_value(value: &str) -> String {
+    crate::text::sanitize_terminal_text(value)
+}
+
+const MAX_CONCURRENT_WEBHOOK_CONNECTIONS: usize = 32;
 
 async fn list_webhooks(output: &OutputOptions) -> Result<()> {
     let client = LinearClient::new()?;
@@ -765,18 +773,26 @@ async fn listen(
     let shutdown = tokio::signal::ctrl_c();
     tokio::pin!(shutdown);
 
+    let connection_limit = Arc::new(Semaphore::new(MAX_CONCURRENT_WEBHOOK_CONNECTIONS));
+
     loop {
         tokio::select! {
             accept = listener.accept() => {
                 match accept {
-                    Ok((stream, addr)) => {
+                    Ok((mut stream, addr)) => {
                         let ws = webhook_secret.clone();
                         let json_out = json_output;
-                        tokio::spawn(async move {
-                            if let Err(e) = handle_connection(stream, addr, ws.as_deref(), json_out).await {
-                                eprintln!("Error handling connection from {}: {}", addr, e);
-                            }
-                        });
+                        if let Ok(permit) = connection_limit.clone().try_acquire_owned() {
+                            tokio::spawn(async move {
+                                let _permit = permit;
+                                if let Err(e) = handle_connection(stream, addr, ws.as_deref(), json_out).await {
+                                    eprintln!("Error handling connection from {}: {}", addr, e);
+                                }
+                            });
+                        } else {
+                            let _ = reject_busy_connection(&mut stream).await;
+                            eprintln!("Too many concurrent webhook connections; rejecting {}", addr);
+                        }
                     }
                     Err(e) => {
                         eprintln!("Accept error: {}", e);
@@ -972,8 +988,8 @@ async fn handle_connection(
     if json_output {
         println!("{}", serde_json::to_string(&body_json)?);
     } else {
-        let action = body_json["action"].as_str().unwrap_or("unknown");
-        let event_type = body_json["type"].as_str().unwrap_or("unknown");
+        let action = safe_terminal_value(body_json["action"].as_str().unwrap_or("unknown"));
+        let event_type = safe_terminal_value(body_json["type"].as_str().unwrap_or("unknown"));
         let timestamp = chrono::Utc::now().format("%H:%M:%S");
 
         println!(
@@ -987,16 +1003,16 @@ async fn handle_connection(
         // Show key data fields
         if let Some(data) = body_json.get("data") {
             if let Some(id) = data["id"].as_str() {
-                print!("  ID: {}", id);
+                print!("  ID: {}", safe_terminal_value(id));
             }
             if let Some(title) = data["title"].as_str() {
-                print!("  Title: {}", title);
+                print!("  Title: {}", safe_terminal_value(title));
             }
             if let Some(identifier) = data["identifier"].as_str() {
-                print!("  Key: {}", identifier);
+                print!("  Key: {}", safe_terminal_value(identifier));
             }
             if let Some(name) = data["name"].as_str() {
-                print!("  Name: {}", name);
+                print!("  Name: {}", safe_terminal_value(name));
             }
             println!();
         }
@@ -1006,6 +1022,15 @@ async fn handle_connection(
     let response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
     stream.write_all(response.as_bytes()).await?;
 
+    Ok(())
+}
+
+async fn reject_busy_connection(stream: &mut tokio::net::TcpStream) -> Result<()> {
+    use tokio::io::AsyncWriteExt;
+
+    let response =
+        "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+    stream.write_all(response.as_bytes()).await?;
     Ok(())
 }
 
@@ -1053,5 +1078,13 @@ mod tests {
         assert!(!is_expected_webhook_path("/webhook/extra"));
         assert!(!is_expected_webhook_path("/webhook-extra"));
         assert!(!is_expected_webhook_path("/other"));
+    }
+
+    #[test]
+    fn test_safe_terminal_value_removes_escape_sequences() {
+        assert_eq!(
+            safe_terminal_value("bad\u{1b}]52;c;ZXZpbA==\u{7}title"),
+            "badtitle"
+        );
     }
 }

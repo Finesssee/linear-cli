@@ -23,6 +23,10 @@ use crate::AgentOptions;
 
 use super::templates;
 
+fn safe_terminal_value(value: &str) -> String {
+    crate::text::sanitize_terminal_text(value)
+}
+
 #[derive(Subcommand)]
 pub enum IssueCommands {
     /// List issues
@@ -973,7 +977,7 @@ fn format_history_entry(entry: &serde_json::Value) -> String {
         ));
     }
 
-    parts.join("; ")
+    crate::text::sanitize_terminal_text(&parts.join("; "))
 }
 
 async fn get_issue(id: &str, output: &OutputOptions, history: bool, comments: bool) -> Result<()> {
@@ -1068,8 +1072,8 @@ async fn get_issue(id: &str, output: &OutputOptions, history: bool, comments: bo
         return Ok(());
     }
 
-    let identifier = issue["identifier"].as_str().unwrap_or("");
-    let title = issue["title"].as_str().unwrap_or("");
+    let identifier = safe_terminal_value(issue["identifier"].as_str().unwrap_or(""));
+    let title = safe_terminal_value(issue["title"].as_str().unwrap_or(""));
     println!("{} {}", identifier.cyan().bold(), title.bold());
     println!("{}", "-".repeat(60));
 
@@ -1082,7 +1086,7 @@ async fn get_issue(id: &str, output: &OutputOptions, history: bool, comments: bo
 
     println!(
         "State:    {}",
-        issue["state"]["name"].as_str().unwrap_or("-")
+        safe_terminal_value(issue["state"]["name"].as_str().unwrap_or("-"))
     );
     println!(
         "Priority: {}",
@@ -1090,11 +1094,12 @@ async fn get_issue(id: &str, output: &OutputOptions, history: bool, comments: bo
     );
     println!(
         "Team:     {}",
-        issue["team"]["name"].as_str().unwrap_or("-")
+        safe_terminal_value(issue["team"]["name"].as_str().unwrap_or("-"))
     );
 
     if let Some(assignee) = issue["assignee"]["name"].as_str() {
-        let email = issue["assignee"]["email"].as_str().unwrap_or("");
+        let assignee = safe_terminal_value(assignee);
+        let email = safe_terminal_value(issue["assignee"]["email"].as_str().unwrap_or(""));
         if !email.is_empty() {
             println!("Assignee: {} ({})", assignee, email.dimmed());
         } else {
@@ -1105,18 +1110,23 @@ async fn get_issue(id: &str, output: &OutputOptions, history: bool, comments: bo
     }
 
     if let Some(project) = issue["project"]["name"].as_str() {
-        println!("Project:  {}", project);
+        println!("Project:  {}", safe_terminal_value(project));
     }
 
     if let Some(parent) = issue["parent"]["identifier"].as_str() {
-        let parent_title = issue["parent"]["title"].as_str().unwrap_or("");
+        let parent = safe_terminal_value(parent);
+        let parent_title = safe_terminal_value(issue["parent"]["title"].as_str().unwrap_or(""));
         println!("Parent:   {} {}", parent, parent_title.dimmed());
     }
 
     let labels = issue["labels"]["nodes"].as_array();
     if let Some(labels) = labels {
         if !labels.is_empty() {
-            let label_names: Vec<&str> = labels.iter().filter_map(|l| l["name"].as_str()).collect();
+            let label_names: Vec<String> = labels
+                .iter()
+                .filter_map(|l| l["name"].as_str())
+                .map(safe_terminal_value)
+                .collect();
             println!("Labels:   {}", label_names.join(", "));
         }
     }
@@ -1134,7 +1144,7 @@ async fn get_issue(id: &str, output: &OutputOptions, history: bool, comments: bo
         println!();
         println!("{}", "SLA".bold());
         if let Some(sla_type) = issue["slaType"].as_str() {
-            println!("  Type:       {}", sla_type);
+            println!("  Type:       {}", safe_terminal_value(sla_type));
         }
         if let Some(started) = issue["slaStartedAt"].as_str() {
             println!("  Started:    {}", started);
@@ -1155,9 +1165,9 @@ async fn get_issue(id: &str, output: &OutputOptions, history: bool, comments: bo
         if !children.is_empty() {
             println!("\n{} ({}):", "Sub-issues".bold(), children.len());
             for child in children {
-                let cid = child["identifier"].as_str().unwrap_or("");
-                let ctitle = child["title"].as_str().unwrap_or("");
-                let cstate = child["state"]["name"].as_str().unwrap_or("-");
+                let cid = safe_terminal_value(child["identifier"].as_str().unwrap_or(""));
+                let ctitle = safe_terminal_value(child["title"].as_str().unwrap_or(""));
+                let cstate = safe_terminal_value(child["state"]["name"].as_str().unwrap_or("-"));
                 println!("  {} {} [{}]", cid.cyan(), ctitle, cstate);
             }
         }
@@ -1175,7 +1185,8 @@ async fn get_issue(id: &str, output: &OutputOptions, history: bool, comments: bo
                 for entry in entries {
                     let ts = entry["createdAt"].as_str().unwrap_or("");
                     let date = if ts.len() >= 10 { &ts[..10] } else { ts };
-                    let actor = entry["actor"]["name"].as_str().unwrap_or("System");
+                    let actor =
+                        safe_terminal_value(entry["actor"]["name"].as_str().unwrap_or("System"));
                     let desc = format_history_entry(entry);
                     if !desc.is_empty() {
                         println!("  {} {} — {}", date.dimmed(), actor, desc);
@@ -1194,7 +1205,8 @@ async fn get_issue(id: &str, output: &OutputOptions, history: bool, comments: bo
                 for comment in comment_nodes {
                     let ts = comment["createdAt"].as_str().unwrap_or("");
                     let date = if ts.len() >= 10 { &ts[..10] } else { ts };
-                    let author = comment["user"]["name"].as_str().unwrap_or("Unknown");
+                    let author =
+                        safe_terminal_value(comment["user"]["name"].as_str().unwrap_or("Unknown"));
                     let body = comment["body"].as_str().unwrap_or("");
                     println!("\n  {} {} {}:", date.dimmed(), "by".dimmed(), author.cyan());
                     for line in crate::text::strip_markdown(body).lines() {

@@ -126,7 +126,7 @@ Key assets:
 ### External command execution and VCS integration
 
 - **Surface:** The CLI launches `git`, `jj`, `gh`, `cargo`, and URL-opening helpers without a shell. Evidence: `src/vcs.rs`, `src/commands/git.rs`, `src/commands/update.rs`, `src/commands/auth.rs`, `src/commands/issues.rs`.
-- **Mitigations present:** Commands are built with `Command::new(...)` rather than shell interpolation, and generated branch names are normalized to kebab-case and validated with `git check-ref-format --branch`. Evidence: `src/vcs.rs`.
+- **Mitigations present:** Commands are built with `Command::new(...)` rather than shell interpolation, generated branch names are normalized to kebab-case and validated with `git check-ref-format --branch`, and the pager path only trusts a small set of bare executable names instead of arbitrary path-based overrides from `PAGER`. Evidence: `src/vcs.rs`, `src/main.rs`.
 - **Attacker story:** A hostile PATH injects a malicious `git`, `cargo`, or `gh` binary, or a compromised local environment tampers with the update path. This is not a remote exploit from Linear data, but it is a credible local code-execution risk if the operator's environment is already compromised.
 
 ### File import, export, cache, and update state
@@ -138,7 +138,7 @@ Key assets:
 ### Output rendering and terminal safety
 
 - **Surface:** Human-oriented command output prints issue titles, descriptions, comments, webhook data, and other workspace-controlled strings directly to the terminal. Evidence: `src/output.rs`, `src/text.rs`, multiple command handlers such as `src/commands/issues.rs` and `src/commands/webhooks.rs`.
-- **Mitigations present:** Markdown stripping and terminal-control neutralization run before human-oriented rendering paths print untrusted workspace content, which reduces ANSI escape and control-sequence abuse in normal CLI output. Evidence: `src/text.rs`.
+- **Mitigations present:** Markdown stripping and terminal-control neutralization run before human-oriented rendering paths print untrusted workspace content, including issue detail/comment rendering and webhook listener summaries, which reduces ANSI escape and control-sequence abuse in normal CLI output. Evidence: `src/text.rs`, `src/commands/issues.rs`, `src/commands/webhooks.rs`.
 - **Attacker story:** A malicious workspace member creates issue titles or descriptions containing escape sequences that spoof prompts, rewrite terminal lines, or attempt clipboard-oriented escape abuse in capable terminals. This is a medium-severity local display and operator-trust issue rather than a server-side compromise.
 
 ### Update workflow
