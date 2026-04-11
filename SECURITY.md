@@ -6,8 +6,8 @@
 
 | Version | Supported |
 | --- | --- |
-| `0.3.21` | Yes |
-| `0.3.20` and earlier | No |
+| `0.3.22` | Yes |
+| `0.3.21` and earlier | No |
 
 Security fixes and documentation updates are only guaranteed on the latest release line.
 
