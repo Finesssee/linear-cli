@@ -6,8 +6,8 @@
 
 | Version | Supported |
 | --- | --- |
-| `0.3.18` | Yes |
-| `0.3.17` and earlier | No |
+| `0.3.21` | Yes |
+| `0.3.20` and earlier | No |
 
 Security fixes and documentation updates are only guaranteed on the latest release line.
 
@@ -30,11 +30,11 @@ Include:
 
 ## Security notes
 
-- API keys and OAuth tokens may come from `LINEAR_API_KEY`, OS keyring storage, or the config file under the user's config directory.
+- API keys and OAuth tokens may come from `LINEAR_API_KEY`, OS keyring storage, or the config file under the user's config directory. Direct API-key entry on the command line is intentionally avoided for persistent config flows.
 - The OAuth callback listener binds to `127.0.0.1` and validates both `state` and PKCE before exchanging the authorization code.
 - The optional webhook listener defaults to `127.0.0.1`, verifies `linear-signature` with HMAC-SHA256, and enforces request size and timeout limits.
 - Upload downloads are restricted to `https://uploads.linear.app` and only follow redirects that stay on that host.
-- The update flow checks GitHub Releases and shells out to local Cargo tooling rather than executing shell text. Update installation can also be triggered from the startup prompt path, including auto-confirmed runs with the global `--yes` flag.
+- The update flow checks GitHub Releases and shells out to local Cargo tooling rather than executing shell text. Installation only runs through the explicit `linear-cli update` path.
 
 ## Additional documentation
 

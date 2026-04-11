@@ -687,25 +687,16 @@ async fn list_issues(
     if let Some(ref group_field) = group_by {
         let key_fn: Box<dyn Fn(&serde_json::Value) -> String> = match group_field.as_str() {
             "state" | "status" => Box::new(|issue: &serde_json::Value| {
-                issue["state"]["name"]
-                    .as_str()
-                    .unwrap_or("Unknown")
-                    .to_string()
+                safe_terminal_value(issue["state"]["name"].as_str().unwrap_or("Unknown"))
             }),
             "priority" => {
                 Box::new(|issue: &serde_json::Value| priority_to_string(issue["priority"].as_i64()))
             }
             "assignee" => Box::new(|issue: &serde_json::Value| {
-                issue["assignee"]["name"]
-                    .as_str()
-                    .unwrap_or("Unassigned")
-                    .to_string()
+                safe_terminal_value(issue["assignee"]["name"].as_str().unwrap_or("Unassigned"))
             }),
             "project" => Box::new(|issue: &serde_json::Value| {
-                issue["project"]["name"]
-                    .as_str()
-                    .unwrap_or("No Project")
-                    .to_string()
+                safe_terminal_value(issue["project"]["name"].as_str().unwrap_or("No Project"))
             }),
             other => anyhow::bail!(
                 "Unknown --group-by field: '{}'. Use state, priority, assignee, or project.",
@@ -744,12 +735,12 @@ async fn list_issues(
         .map(|issue| IssueRow {
             identifier: issue["identifier"].as_str().unwrap_or("").to_string(),
             title: truncate(issue["title"].as_str().unwrap_or(""), width),
-            state: issue["state"]["name"].as_str().unwrap_or("-").to_string(),
+            state: safe_terminal_value(issue["state"]["name"].as_str().unwrap_or("-")),
             priority: priority_to_string(issue["priority"].as_i64()),
             assignee: issue["assignee"]["name"]
                 .as_str()
-                .unwrap_or("-")
-                .to_string(),
+                .map(safe_terminal_value)
+                .unwrap_or_else(|| "-".to_string()),
         })
         .collect();
 
@@ -840,9 +831,10 @@ async fn get_issues(
                 if issue.is_null() {
                     eprintln!("{} Issue not found: {}", "!".yellow(), id);
                 } else {
-                    let identifier = issue["identifier"].as_str().unwrap_or("");
-                    let title = issue["title"].as_str().unwrap_or("");
-                    let state = issue["state"]["name"].as_str().unwrap_or("-");
+                    let identifier =
+                        safe_terminal_value(issue["identifier"].as_str().unwrap_or(""));
+                    let title = safe_terminal_value(issue["title"].as_str().unwrap_or(""));
+                    let state = safe_terminal_value(issue["state"]["name"].as_str().unwrap_or("-"));
                     let priority = priority_to_string(issue["priority"].as_i64());
                     println!("{} {} [{}] {}", identifier.cyan(), title, state, priority);
                 }

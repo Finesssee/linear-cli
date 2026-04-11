@@ -86,7 +86,7 @@ pub fn is_yes() -> bool {
 #[command(after_help = r#"QUICK START:
     1. Get your API key from https://linear.app/settings/api
     2. Configure the CLI:
-       linear config set-key YOUR_API_KEY
+       printf '%s\n' "$LINEAR_API_KEY" | linear config set-key
     3. List your issues:
        linear issues list
     4. Create an issue:
@@ -169,10 +169,6 @@ struct Cli {
     /// Sort order for JSON array output
     #[arg(long, global = true, value_enum, default_value = "asc")]
     order: SortOrder,
-
-    /// Override API key for this invocation
-    #[arg(long, global = true, env = "LINEAR_API_KEY")]
-    api_key: Option<String>,
 
     /// Override workspace profile for this invocation
     #[arg(long, global = true, env = "LINEAR_CLI_PROFILE")]
@@ -755,12 +751,11 @@ Walks you through:
     },
     /// Configure CLI settings - API keys and workspaces
     #[command(after_help = r#"EXAMPLES:
-    linear config set-key YOUR_API_KEY      # Set API key
-    linear config set api-key YOUR_API_KEY  # Set API key (alt)
+    printf '%s\n' "$LINEAR_API_KEY" | linear config set-key
     linear config get api-key               # Get API key (masked)
     linear config set profile work          # Switch profile
     linear config show                      # Show configuration
-    linear config workspace-add work KEY    # Add workspace
+    printf '%s\n' "$LINEAR_API_KEY" | linear config workspace-add work
     linear config workspace-switch work     # Switch workspace"#)]
     Config {
         #[command(subcommand)]
@@ -772,23 +767,20 @@ Walks you through:
 enum ConfigCommands {
     /// Set API key
     #[command(after_help = r#"EXAMPLE:
-    linear config set-key lin_api_xxxxxxxxxxxxx"#)]
-    SetKey {
-        /// Your Linear API key
-        key: String,
-    },
+    printf '%s\n' "$LINEAR_API_KEY" | linear config set-key"#)]
+    SetKey,
     /// Get a configuration value
     Get {
         /// Config key to retrieve (api-key, profile)
-        key: String,
+        key: ConfigGetKey,
         /// Output raw value without masking
         #[arg(long)]
         raw: bool,
     },
     /// Set a configuration value
     Set {
-        /// Config key to set (api-key, profile)
-        key: String,
+        /// Config key to set
+        key: ConfigSetKey,
         /// Value to set
         value: String,
     },
@@ -808,12 +800,10 @@ enum ConfigCommands {
     /// Add a new workspace
     #[command(alias = "add")]
     #[command(after_help = r#"EXAMPLE:
-    linear config workspace-add personal lin_api_xxxxxxxxxxxxx"#)]
+    printf '%s\n' "$LINEAR_API_KEY" | linear config workspace-add personal"#)]
     WorkspaceAdd {
         /// Workspace name
         name: String,
-        /// API key for this workspace
-        api_key: String,
     },
     /// List all workspaces
     #[command(alias = "list")]
@@ -835,6 +825,35 @@ enum ConfigCommands {
         /// Workspace name to remove
         name: String,
     },
+}
+
+#[derive(clap::ValueEnum, Clone, Debug)]
+enum ConfigGetKey {
+    #[value(alias = "api_key")]
+    ApiKey,
+    Profile,
+}
+
+impl std::fmt::Display for ConfigGetKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ApiKey => write!(f, "api-key"),
+            Self::Profile => write!(f, "profile"),
+        }
+    }
+}
+
+#[derive(clap::ValueEnum, Clone, Debug)]
+enum ConfigSetKey {
+    Profile,
+}
+
+impl std::fmt::Display for ConfigSetKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Profile => write!(f, "profile"),
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -907,9 +926,6 @@ async fn async_main() -> Result<i32> {
         width: cli.width,
         no_truncate: cli.no_truncate,
     });
-    if let Some(key) = cli.api_key.as_deref() {
-        std::env::set_var("LINEAR_API_KEY", key);
-    }
     if let Some(profile) = cli.profile.as_deref() {
         std::env::set_var("LINEAR_CLI_PROFILE", profile);
     }
@@ -1029,29 +1045,8 @@ async fn async_main() -> Result<i32> {
 }
 
 fn should_check_for_updates(cli: &Cli) -> bool {
-    if cli.quiet || cli.schema {
-        return false;
-    }
-
-    if matches!(cli.output, OutputFormat::Json | OutputFormat::Ndjson) {
-        return false;
-    }
-
-    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
-        return false;
-    }
-
-    !matches!(
-        &cli.command,
-        Commands::Update { .. }
-            | Commands::Common
-            | Commands::Agent
-            | Commands::Completions { .. }
-            | Commands::Complete { .. }
-            | Commands::Config {
-                action: ConfigCommands::Completions { .. },
-            }
-    )
+    let _ = cli;
+    false
 }
 
 /// Categorize error for exit codes: 1=general error, 2=not found, 3=auth error
@@ -1193,17 +1188,17 @@ async fn run_command(
         Commands::Api { action } => commands::api::handle(action, output).await?,
         Commands::Doctor { check_api, fix } => doctor::run(output, check_api, fix).await?,
         Commands::Config { action } => match action {
-            ConfigCommands::SetKey { key } => {
-                config::set_api_key(&key)?;
+            ConfigCommands::SetKey => {
+                config::set_api_key_from_stdin_or_prompt()?;
                 if !agent_opts.quiet {
                     println!("API key saved successfully!");
                 }
             }
             ConfigCommands::Get { key, raw } => {
-                config::config_get(&key, raw)?;
+                config::config_get(&key.to_string(), raw)?;
             }
             ConfigCommands::Set { key, value } => {
-                config::config_set(&key, &value)?;
+                config::config_set(&key.to_string(), &value)?;
             }
             ConfigCommands::Show => {
                 config::show_config()?;
@@ -1212,8 +1207,8 @@ async fn run_command(
                 let mut cmd = Cli::command();
                 generate(shell, &mut cmd, "linear-cli", &mut std::io::stdout());
             }
-            ConfigCommands::WorkspaceAdd { name, api_key } => {
-                config::workspace_add(&name, &api_key)?;
+            ConfigCommands::WorkspaceAdd { name } => {
+                config::workspace_add_from_stdin_or_prompt(&name)?;
             }
             ConfigCommands::WorkspaceList => {
                 config::workspace_list()?;

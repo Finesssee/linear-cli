@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
+use dialoguer::Password;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
+use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
@@ -133,6 +135,34 @@ pub fn set_api_key(key: &str) -> Result<()> {
     Ok(())
 }
 
+fn read_secret_from_stdin_or_prompt(prompt: &str) -> Result<String> {
+    if std::io::stdin().is_terminal() {
+        let secret = Password::new()
+            .with_prompt(prompt)
+            .allow_empty_password(false)
+            .interact()
+            .context("Failed to read secret from terminal")?;
+        return Ok(secret);
+    }
+
+    let mut buffer = String::new();
+    std::io::stdin()
+        .read_to_string(&mut buffer)
+        .context("Failed to read secret from stdin")?;
+    let secret = buffer.trim().to_string();
+
+    if secret.is_empty() {
+        anyhow::bail!("No secret provided on stdin");
+    }
+
+    Ok(secret)
+}
+
+pub fn set_api_key_from_stdin_or_prompt() -> Result<()> {
+    let key = read_secret_from_stdin_or_prompt("Linear API key")?;
+    set_api_key(&key)
+}
+
 pub fn get_api_key() -> Result<String> {
     // Check for LINEAR_API_KEY environment variable first
     if let Ok(api_key) = std::env::var("LINEAR_API_KEY") {
@@ -239,7 +269,9 @@ pub fn config_get(key: &str, raw: bool) -> Result<()> {
 
 pub fn config_set(key: &str, value: &str) -> Result<()> {
     match key.to_lowercase().as_str() {
-        "api-key" | "api_key" => set_api_key(value),
+        "api-key" | "api_key" => anyhow::bail!(
+            "Setting api-key via argv is disabled. Use `linear config set-key` and provide the key via stdin or the hidden prompt."
+        ),
         "profile" => workspace_switch(value),
         _ => anyhow::bail!("Unknown config key: {}", key),
     }
@@ -297,6 +329,12 @@ pub fn workspace_add(name: &str, api_key: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+pub fn workspace_add_from_stdin_or_prompt(name: &str) -> Result<()> {
+    let api_key =
+        read_secret_from_stdin_or_prompt(&format!("Linear API key for workspace '{name}'"))?;
+    workspace_add(name, &api_key)
 }
 
 pub fn workspace_list() -> Result<()> {
@@ -797,5 +835,13 @@ mod tests {
     #[test]
     fn test_mask_api_key_for_display_masks_non_linear_short_keys() {
         assert_eq!(mask_api_key_for_display("secret"), "***");
+    }
+
+    #[test]
+    fn test_config_set_rejects_api_key_on_argv() {
+        let err = config_set("api-key", "lin_api_secret").unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("Setting api-key via argv is disabled"));
     }
 }

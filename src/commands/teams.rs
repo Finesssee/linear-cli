@@ -15,6 +15,10 @@ use crate::pagination::paginate_nodes;
 use crate::text::truncate;
 use crate::types::Team;
 
+fn safe_terminal_value(value: &str) -> String {
+    crate::text::sanitize_terminal_text(value)
+}
+
 #[derive(Subcommand)]
 pub enum TeamCommands {
     /// List all teams
@@ -236,8 +240,8 @@ async fn list_teams(output: &OutputOptions) -> Result<()> {
         .iter()
         .filter_map(|v| serde_json::from_value::<Team>(v.clone()).ok())
         .map(|t| TeamRow {
-            name: truncate(&t.name, width),
-            key: t.key,
+            name: truncate(safe_terminal_value(&t.name).as_str(), width),
+            key: safe_terminal_value(&t.key),
             id: t.id,
         })
         .collect();
@@ -287,21 +291,21 @@ async fn get_team(id: &str, output: &OutputOptions) -> Result<()> {
 
     let team: Team = serde_json::from_value(raw.clone())?;
 
-    println!("{}", team.name.bold());
+    println!("{}", safe_terminal_value(&team.name).bold());
     println!("{}", "-".repeat(40));
 
-    println!("Key: {}", team.key);
+    println!("Key: {}", safe_terminal_value(&team.key));
 
     if let Some(desc) = &team.description {
         if !desc.is_empty() {
-            println!("Description: {}", desc);
+            println!("Description: {}", safe_terminal_value(desc));
         }
     }
 
     println!("Private: {}", team.private.unwrap_or(false));
 
     if let Some(timezone) = &team.timezone {
-        println!("Timezone: {}", timezone);
+        println!("Timezone: {}", safe_terminal_value(timezone));
     }
 
     if let Some(issue_count) = team.issue_count {
@@ -309,11 +313,11 @@ async fn get_team(id: &str, output: &OutputOptions) -> Result<()> {
     }
 
     if let Some(color) = &team.color {
-        println!("Color: {}", color);
+        println!("Color: {}", safe_terminal_value(color));
     }
 
     if let Some(icon) = &team.icon {
-        println!("Icon: {}", icon);
+        println!("Icon: {}", safe_terminal_value(icon));
     }
 
     println!("ID: {}", team.id);
@@ -327,6 +331,16 @@ async fn get_team(id: &str, output: &OutputOptions) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_safe_terminal_value_removes_escape_sequences() {
+        assert_eq!(safe_terminal_value("team\u{1b}]52;c;ZXZpbA==\u{7}"), "team");
+    }
 }
 
 async fn get_teams(ids: &[String], output: &OutputOptions) -> Result<()> {
@@ -390,11 +404,11 @@ async fn get_teams(ids: &[String], output: &OutputOptions) -> Result<()> {
                 if raw.is_null() {
                     eprintln!("{} Team not found: {}", "!".yellow(), id);
                 } else if let Ok(team) = serde_json::from_value::<Team>(raw.clone()) {
-                    let name = truncate(&team.name, width);
+                    let name = truncate(safe_terminal_value(&team.name).as_str(), width);
                     println!(
                         "{} ({}) private={} id={}",
                         name.cyan(),
-                        team.key,
+                        safe_terminal_value(&team.key),
                         team.private.unwrap_or(false),
                         id
                     );
@@ -481,13 +495,16 @@ async fn list_members(team: &str, output: &OutputOptions) -> Result<()> {
         .iter()
         .map(|m| MemberRow {
             name: truncate(
-                m["displayName"]
-                    .as_str()
-                    .or_else(|| m["name"].as_str())
-                    .unwrap_or(""),
+                safe_terminal_value(
+                    m["displayName"]
+                        .as_str()
+                        .or_else(|| m["name"].as_str())
+                        .unwrap_or(""),
+                )
+                .as_str(),
                 width,
             ),
-            email: m["email"].as_str().unwrap_or("").to_string(),
+            email: safe_terminal_value(m["email"].as_str().unwrap_or("")),
             role: if m["admin"].as_bool() == Some(true) {
                 "Admin".to_string()
             } else {
@@ -502,7 +519,7 @@ async fn list_members(team: &str, output: &OutputOptions) -> Result<()> {
         .collect();
 
     let table = Table::new(rows).to_string();
-    println!("Team: {}\n", team_name.bold());
+    println!("Team: {}\n", safe_terminal_value(team_name).bold());
     println!("{}", table);
     println!("\n{} members", members.len());
 
@@ -566,8 +583,8 @@ async fn create_team(
         println!(
             "{} Created team: {} ({})",
             "+".green(),
-            display_name,
-            display_key
+            safe_terminal_value(display_name),
+            safe_terminal_value(display_key)
         );
         println!("  ID: {}", team["id"].as_str().unwrap_or(""));
     } else {
@@ -637,8 +654,14 @@ async fn update_team(
         }
         println!("{} Team updated", "+".green());
         println!("  ID: {}", team["id"].as_str().unwrap_or(""));
-        println!("  Name: {}", team["name"].as_str().unwrap_or(""));
-        println!("  Key: {}", team["key"].as_str().unwrap_or(""));
+        println!(
+            "  Name: {}",
+            safe_terminal_value(team["name"].as_str().unwrap_or(""))
+        );
+        println!(
+            "  Key: {}",
+            safe_terminal_value(team["key"].as_str().unwrap_or(""))
+        );
     } else {
         anyhow::bail!("Failed to update team");
     }

@@ -15,6 +15,10 @@ use crate::pagination::paginate_nodes;
 use crate::text::truncate;
 use crate::types::Comment;
 
+fn safe_terminal_value(value: &str) -> String {
+    crate::text::sanitize_terminal_text(value)
+}
+
 #[derive(Subcommand)]
 pub enum CommentCommands {
     /// List comments for an issue
@@ -138,8 +142,8 @@ async fn list_comments(issue_ids: &[String], output: &OutputOptions) -> Result<(
         if idx > 0 {
             println!();
         }
-        let identifier = issue["identifier"].as_str().unwrap_or("");
-        let title = issue["title"].as_str().unwrap_or("");
+        let identifier = safe_terminal_value(issue["identifier"].as_str().unwrap_or(""));
+        let title = safe_terminal_value(issue["title"].as_str().unwrap_or(""));
 
         println!("{} {}", identifier.bold(), title);
         println!("{}", "-".repeat(50));
@@ -182,7 +186,7 @@ async fn list_comments(issue_ids: &[String], output: &OutputOptions) -> Result<(
                     author: c
                         .user
                         .as_ref()
-                        .map(|u| u.name.clone())
+                        .map(|u| safe_terminal_value(&u.name))
                         .unwrap_or_else(|| "Unknown".to_string()),
                     created_at,
                     body: truncated_body.replace('\n', " "),
@@ -291,8 +295,9 @@ async fn create_comment(issue_id: &str, body: &str, parent_id: Option<String>) -
 
     if result["data"]["commentCreate"]["success"].as_bool() == Some(true) {
         let comment = &result["data"]["commentCreate"]["comment"];
-        let issue_identifier = comment["issue"]["identifier"].as_str().unwrap_or("");
-        let issue_title = comment["issue"]["title"].as_str().unwrap_or("");
+        let issue_identifier =
+            safe_terminal_value(comment["issue"]["identifier"].as_str().unwrap_or(""));
+        let issue_title = safe_terminal_value(comment["issue"]["title"].as_str().unwrap_or(""));
 
         println!(
             "{} Comment added to {} {}",
@@ -303,15 +308,10 @@ async fn create_comment(issue_id: &str, body: &str, parent_id: Option<String>) -
         println!("  ID: {}", comment["id"].as_str().unwrap_or(""));
         println!(
             "  Author: {}",
-            comment["user"]["name"].as_str().unwrap_or("")
+            safe_terminal_value(comment["user"]["name"].as_str().unwrap_or(""))
         );
 
-        let body_preview = comment["body"]
-            .as_str()
-            .unwrap_or("")
-            .chars()
-            .take(80)
-            .collect::<String>();
+        let body_preview = truncate(comment["body"].as_str().unwrap_or(""), Some(80));
         if !body_preview.is_empty() {
             println!("  Body: {}", body_preview.dimmed());
         }
@@ -320,6 +320,19 @@ async fn create_comment(issue_id: &str, body: &str, parent_id: Option<String>) -
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_safe_terminal_value_removes_escape_sequences() {
+        assert_eq!(
+            safe_terminal_value("bad\u{1b}]52;c;ZXZpbA==\u{7}title"),
+            "badtitle"
+        );
+    }
 }
 
 async fn update_comment(id: &str, body: &str, output: &OutputOptions) -> Result<()> {

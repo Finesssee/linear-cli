@@ -48,7 +48,7 @@ cargo install linear-cli --force --features secure-storage
 
 ```bash
 # 1. Set your API key (get one at https://linear.app/settings/api)
-linear-cli config set-key lin_api_xxxxxxxxxxxxx
+printf '%s\n' "$LINEAR_API_KEY" | linear-cli config set-key
 
 # Or use OAuth 2.0 (browser-based, auto-refreshing)
 linear-cli auth oauth
@@ -414,7 +414,7 @@ Two authentication methods are supported. Both can be used per-profile.
 
 ```bash
 # Set directly
-linear-cli config set-key lin_api_xxxxxxxxxxxxx
+printf '%s\n' "$LINEAR_API_KEY" | linear-cli config set-key
 
 # Or interactive login
 linear-cli auth login

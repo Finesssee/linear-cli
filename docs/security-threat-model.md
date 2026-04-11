@@ -103,7 +103,7 @@ Key assets:
 
 - **Surface:** API keys and OAuth tokens are loaded from environment variables, config storage, or OS keyring entries. Evidence: `src/config.rs`, `src/keyring.rs`, `src/commands/auth.rs`, `src/api.rs`.
 - **Mitigations present:** Config writes, cache writes, update-state writes, export files, and upload downloads use atomic temp-file replacement and `0600` permissions on Unix where implemented. OAuth refresh flows persist rotated tokens. Keyring-backed storage is supported through the optional `secure-storage` feature. Human-readable config display paths consistently mask API keys unless the user explicitly requests raw secret output. Evidence: `src/config.rs`, `src/cache.rs`, `src/commands/export.rs`, `src/commands/uploads.rs`, `src/commands/update.rs`.
-- **Attacker story:** Malware or another local user reads `~/.config/linear-cli/config.toml` or exported JSON/CSV files and steals API keys or sensitive Linear content. This remains a high-severity local compromise path, with OS keyring storage reducing but not eliminating exposure.
+- **Attacker story:** Malware or another local user reads `~/.config/linear-cli/config.toml` or exported JSON/CSV files and steals API keys or sensitive Linear content. This remains a high-severity local compromise path, with OS keyring storage reducing but not eliminating exposure. The CLI now avoids long-lived API-key entrypoints on argv for config and workspace setup flows, which reduces shell-history and process-list leakage.
 
 ### Network and API interactions
 
@@ -138,13 +138,13 @@ Key assets:
 ### Output rendering and terminal safety
 
 - **Surface:** Human-oriented command output prints issue titles, descriptions, comments, webhook data, and other workspace-controlled strings directly to the terminal. Evidence: `src/output.rs`, `src/text.rs`, multiple command handlers such as `src/commands/issues.rs` and `src/commands/webhooks.rs`.
-- **Mitigations present:** Markdown stripping and terminal-control neutralization run before human-oriented rendering paths print untrusted workspace content, including issue detail/comment rendering and webhook listener summaries, which reduces ANSI escape and control-sequence abuse in normal CLI output. Evidence: `src/text.rs`, `src/commands/issues.rs`, `src/commands/webhooks.rs`.
+- **Mitigations present:** Markdown stripping and terminal-control neutralization run before human-oriented rendering paths print untrusted workspace content, including issue detail, comment, team, template, and webhook rendering paths, which reduces ANSI escape and control-sequence abuse in normal CLI output. Evidence: `src/text.rs`, `src/commands/issues.rs`, `src/commands/comments.rs`, `src/commands/teams.rs`, `src/commands/templates.rs`, `src/commands/webhooks.rs`.
 - **Attacker story:** A malicious workspace member creates issue titles or descriptions containing escape sequences that spoof prompts, rewrite terminal lines, or attempt clipboard-oriented escape abuse in capable terminals. This is a medium-severity local display and operator-trust issue rather than a server-side compromise.
 
 ### Update workflow
 
 - **Surface:** `linear-cli update` checks GitHub Releases and then runs local Cargo tooling. Evidence: `src/commands/update.rs`.
-- **Mitigations present:** The command plan is explicit, draft and prerelease GitHub releases are rejected, and the updater launches `cargo` directly rather than executing a shell string. Release checks can also run from the startup prompt path, and installation can auto-run when the global `--yes` flag is set. Evidence: `src/main.rs`, `src/commands/update.rs`.
+- **Mitigations present:** The command plan is explicit, draft and prerelease GitHub releases are rejected, and the updater launches `cargo` directly rather than executing a shell string. Installation only runs through the explicit `linear-cli update` command path rather than opportunistically from unrelated commands. Evidence: `src/main.rs`, `src/commands/update.rs`.
 - **Attacker story:** A compromised local Cargo installation, hostile PATH, or supply-chain compromise could turn a user-initiated update into execution of attacker-controlled code. This is a supply-chain and local trust problem, not an unauthenticated network-RCE path in the CLI itself.
 
 ### Out-of-scope or low-relevance classes

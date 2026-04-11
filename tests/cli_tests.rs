@@ -102,6 +102,20 @@ fn test_config_help() {
 }
 
 #[test]
+fn test_top_level_help_does_not_expose_api_key_flag() {
+    let (code, _stdout, stderr) = run_cli(&["--api-key", "dummy", "common"]);
+    assert_ne!(code, 0);
+    assert!(stderr.contains("unexpected argument '--api-key'") || stderr.contains("--api-key"));
+}
+
+#[test]
+fn test_config_set_help_only_allows_profile() {
+    let (code, _stdout, stderr) = run_cli(&["config", "set", "api-key", "dummy"]);
+    assert_ne!(code, 0);
+    assert!(stderr.contains("invalid value") || stderr.contains("api-key"));
+}
+
+#[test]
 fn test_bulk_help() {
     let (code, stdout, _stderr) = run_cli(&["bulk", "--help"]);
     assert_eq!(code, 0);

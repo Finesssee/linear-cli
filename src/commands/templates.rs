@@ -16,6 +16,10 @@ use crate::output::{
 };
 use crate::priority::priority_to_string;
 use crate::text::truncate;
+
+fn safe_terminal_value(value: &str) -> String {
+    crate::text::sanitize_terminal_text(value)
+}
 /// Issue template structure for creating issues with predefined values
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct IssueTemplate {
@@ -239,9 +243,18 @@ fn list_templates(output: &OutputOptions) -> Result<()> {
     let rows: Vec<TemplateRow> = templates
         .iter()
         .map(|t| TemplateRow {
-            name: truncate(t["name"].as_str().unwrap_or(""), width),
-            title_prefix: truncate(t["title_prefix"].as_str().unwrap_or("-"), width),
-            team: truncate(t["team"].as_str().unwrap_or("-"), width),
+            name: truncate(
+                safe_terminal_value(t["name"].as_str().unwrap_or("")).as_str(),
+                width,
+            ),
+            title_prefix: truncate(
+                safe_terminal_value(t["title_prefix"].as_str().unwrap_or("-")).as_str(),
+                width,
+            ),
+            team: truncate(
+                safe_terminal_value(t["team"].as_str().unwrap_or("-")).as_str(),
+                width,
+            ),
             priority: priority_to_string(t["default_priority"].as_i64()),
             labels: {
                 let labels = t["default_labels"].as_array().cloned().unwrap_or_default();
@@ -253,7 +266,10 @@ fn list_templates(output: &OutputOptions) -> Result<()> {
                         .filter_map(|v| v.as_str())
                         .collect::<Vec<_>>()
                         .join(", ");
-                    truncate(&joined, display_options().max_width(40))
+                    truncate(
+                        safe_terminal_value(&joined).as_str(),
+                        display_options().max_width(40),
+                    )
                 }
             },
         })
@@ -371,16 +387,24 @@ fn show_template(name: &str, output: &OutputOptions) -> Result<()> {
         return Ok(());
     }
 
-    println!("{} {}", "Template:".bold(), template.name.cyan().bold());
+    println!(
+        "{} {}",
+        "Template:".bold(),
+        safe_terminal_value(&template.name).cyan().bold()
+    );
     println!("{}", "-".repeat(40));
 
     println!(
         "Title Prefix: {}",
-        template.title_prefix.as_ref().unwrap_or(&"-".to_string())
+        template
+            .title_prefix
+            .as_deref()
+            .map(safe_terminal_value)
+            .unwrap_or_else(|| "-".to_string())
     );
 
     if let Some(desc) = &template.description {
-        println!("Description:  {}", desc);
+        println!("Description:  {}", safe_terminal_value(desc));
     } else {
         println!("Description:  -");
     }
@@ -392,13 +416,20 @@ fn show_template(name: &str, output: &OutputOptions) -> Result<()> {
 
     println!(
         "Team:         {}",
-        template.team.as_ref().unwrap_or(&"-".to_string())
+        template
+            .team
+            .as_deref()
+            .map(safe_terminal_value)
+            .unwrap_or_else(|| "-".to_string())
     );
 
     if template.default_labels.is_empty() {
         println!("Labels:       -");
     } else {
-        println!("Labels:       {}", template.default_labels.join(", "));
+        println!(
+            "Labels:       {}",
+            safe_terminal_value(&template.default_labels.join(", "))
+        );
     }
 
     Ok(())
@@ -508,10 +539,13 @@ async fn remote_list_templates(template_type: Option<&str>, output: &OutputOptio
     let rows: Vec<RemoteTemplateRow> = filtered
         .iter()
         .map(|t| RemoteTemplateRow {
-            name: truncate(t["name"].as_str().unwrap_or(""), width),
+            name: truncate(
+                safe_terminal_value(t["name"].as_str().unwrap_or("")).as_str(),
+                width,
+            ),
             template_type: t["type"].as_str().unwrap_or("-").to_string(),
             team: truncate(
-                t["team"]["name"].as_str().unwrap_or("-"),
+                safe_terminal_value(t["team"]["name"].as_str().unwrap_or("-")).as_str(),
                 display_options().max_width(20),
             ),
             created: t["createdAt"]
@@ -564,21 +598,27 @@ async fn remote_get_template(id: &str, output: &OutputOptions) -> Result<()> {
     println!(
         "{} {}",
         "Template:".bold(),
-        raw["name"].as_str().unwrap_or("").cyan().bold()
+        safe_terminal_value(raw["name"].as_str().unwrap_or(""))
+            .cyan()
+            .bold()
     );
     println!("{}", "-".repeat(40));
-    println!("Type: {}", raw["type"].as_str().unwrap_or("-"));
+    println!(
+        "Type: {}",
+        safe_terminal_value(raw["type"].as_str().unwrap_or("-"))
+    );
     if let Some(desc) = raw["description"].as_str() {
         if !desc.is_empty() {
-            println!("Description: {}", desc);
+            println!("Description: {}", safe_terminal_value(desc));
         }
     }
     if let Some(team_name) = raw["team"]["name"].as_str() {
-        let team_key = raw["team"]["key"].as_str().unwrap_or("");
+        let team_name = safe_terminal_value(team_name);
+        let team_key = safe_terminal_value(raw["team"]["key"].as_str().unwrap_or(""));
         println!("Team: {} ({})", team_name, team_key);
     }
     if let Some(creator) = raw["creator"]["name"].as_str() {
-        println!("Creator: {}", creator);
+        println!("Creator: {}", safe_terminal_value(creator));
     }
     println!(
         "Created: {}",
@@ -597,6 +637,16 @@ async fn remote_get_template(id: &str, output: &OutputOptions) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_safe_terminal_value_removes_escape_sequences() {
+        assert_eq!(safe_terminal_value("bad\u{1b}[31mname\u{1b}[0m"), "badname");
+    }
 }
 
 async fn remote_create_template(
@@ -649,7 +699,7 @@ async fn remote_create_template(
         println!(
             "{} Template created: {}",
             "+".green(),
-            tmpl["name"].as_str().unwrap_or("")
+            safe_terminal_value(tmpl["name"].as_str().unwrap_or(""))
         );
         println!("  ID: {}", tmpl["id"].as_str().unwrap_or(""));
     } else {
