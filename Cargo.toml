@@ -10,6 +10,10 @@ homepage = "https://github.com/Finesssee/linear-cli"
 readme = "README.md"
 keywords = ["linear", "cli", "project-management", "issues", "productivity"]
 categories = ["command-line-utilities", "development-tools"]
+exclude = [
+    "linear-cli-*.tar.gz",
+    "linear-cli-*.zip",
+]
 
 [[bin]]
 name = "linear-cli"
