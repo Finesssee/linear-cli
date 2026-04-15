@@ -922,7 +922,7 @@ async fn velocity(team: &str, count: usize, output: &OutputOptions) -> Result<()
         query($teamId: String!, $first: Int) {
             team(id: $teamId) {
                 name
-                cycles(first: $first, orderBy: startsAt, filter: { isPast: { eq: true } }) {
+                cycles(first: $first, orderBy: createdAt, filter: { isPast: { eq: true } }) {
                     nodes {
                         id name number
                         startsAt endsAt completedAt
@@ -950,10 +950,19 @@ async fn velocity(team: &str, count: usize, output: &OutputOptions) -> Result<()
     }
 
     let team_name = team_data["name"].as_str().unwrap_or(team);
-    let cycles = team_data["cycles"]["nodes"]
+    let mut cycles = team_data["cycles"]["nodes"]
         .as_array()
         .cloned()
         .unwrap_or_default();
+
+    // Sort by startsAt ascending so velocity trend is chronological.
+    // The API orderBy uses PaginationOrderBy (only createdAt/updatedAt valid),
+    // so we sort by the startsAt field in application code instead.
+    cycles.sort_by(|a, b| {
+        let a_start = a["startsAt"].as_str().unwrap_or("");
+        let b_start = b["startsAt"].as_str().unwrap_or("");
+        a_start.cmp(b_start)
+    });
 
     if cycles.is_empty() {
         if output.is_json() || output.has_template() {
