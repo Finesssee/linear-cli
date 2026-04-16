@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Subcommand;
 use colored::Colorize;
 use futures::stream::{self, StreamExt};
-use serde_json::json;
+use serde_json::{json, Value};
 use tabled::{Table, Tabled};
 
 use crate::api::{resolve_team_id, LinearClient};
@@ -914,15 +914,21 @@ struct VelocityRow {
     duration: String,
 }
 
-async fn velocity(team: &str, count: usize, output: &OutputOptions) -> Result<()> {
-    let client = LinearClient::new()?;
-    let team_id = resolve_team_id(&client, team, &output.cache).await?;
-
+async fn fetch_past_cycles_for_velocity(
+    client: &LinearClient,
+    team_id: &str,
+    team_label: &str,
+) -> Result<(String, Vec<Value>)> {
     let query = r#"
-        query($teamId: String!, $first: Int) {
+        query($teamId: String!, $first: Int!, $after: String) {
             team(id: $teamId) {
                 name
-                cycles(first: $first, orderBy: startsAt, filter: { isPast: { eq: true } }) {
+                cycles(
+                    first: $first
+                    after: $after
+                    orderBy: createdAt
+                    filter: { isPast: { eq: true } }
+                ) {
                     nodes {
                         id name number
                         startsAt endsAt completedAt
@@ -932,28 +938,86 @@ async fn velocity(team: &str, count: usize, output: &OutputOptions) -> Result<()
                         completedScopeHistory
                         progress
                     }
+                    pageInfo {
+                        hasNextPage
+                        endCursor
+                    }
                 }
             }
         }
     "#;
 
-    let result = client
-        .query(
-            query,
-            Some(json!({ "teamId": team_id, "first": count as i64 })),
-        )
-        .await?;
-    let team_data = &result["data"]["team"];
+    let mut team_name: Option<String> = None;
+    let mut cycles: Vec<Value> = Vec::new();
+    let mut after: Option<String> = None;
 
-    if team_data.is_null() {
-        anyhow::bail!("Team not found: {}", team);
+    loop {
+        let result = client
+            .query(
+                query,
+                Some(json!({
+                    "teamId": team_id,
+                    "first": 50,
+                    "after": after,
+                })),
+            )
+            .await?;
+        let team_data = &result["data"]["team"];
+
+        if team_data.is_null() {
+            anyhow::bail!("Team not found: {}", team_label);
+        }
+
+        if team_name.is_none() {
+            team_name = Some(team_data["name"].as_str().unwrap_or(team_label).to_string());
+        }
+
+        cycles.extend(
+            team_data["cycles"]["nodes"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default(),
+        );
+
+        let page_info = &team_data["cycles"]["pageInfo"];
+        if page_info["hasNextPage"].as_bool() != Some(true) {
+            break;
+        }
+
+        after = page_info["endCursor"]
+            .as_str()
+            .map(|cursor| cursor.to_string());
+        if after.is_none() {
+            break;
+        }
     }
 
-    let team_name = team_data["name"].as_str().unwrap_or(team);
-    let cycles = team_data["cycles"]["nodes"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
+    Ok((team_name.unwrap_or_else(|| team_label.to_string()), cycles))
+}
+
+fn select_recent_cycles_for_velocity(mut cycles: Vec<Value>, count: usize) -> Vec<Value> {
+    if count == 0 {
+        return Vec::new();
+    }
+
+    cycles.sort_by(|a, b| {
+        let a_start = a["startsAt"].as_str().unwrap_or("");
+        let b_start = b["startsAt"].as_str().unwrap_or("");
+        a_start.cmp(b_start)
+    });
+
+    if cycles.len() > count {
+        cycles = cycles.split_off(cycles.len() - count);
+    }
+
+    cycles
+}
+
+async fn velocity(team: &str, count: usize, output: &OutputOptions) -> Result<()> {
+    let client = LinearClient::new()?;
+    let team_id = resolve_team_id(&client, team, &output.cache).await?;
+    let (team_name, cycles) = fetch_past_cycles_for_velocity(&client, &team_id, team).await?;
+    let cycles = select_recent_cycles_for_velocity(cycles, count);
 
     if cycles.is_empty() {
         if output.is_json() || output.has_template() {
@@ -1194,4 +1258,33 @@ fn parse_duration_days(start: &str, end: &str) -> Option<u64> {
     let start_days = sy * 365 + sm * 30 + sd;
     let end_days = ey * 365 + em * 30 + ed;
     Some((end_days - start_days).unsigned_abs())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_select_recent_cycles_for_velocity_sorts_and_takes_latest_count() {
+        let cycles = vec![
+            json!({ "number": 10, "startsAt": "2024-01-15T00:00:00.000Z" }),
+            json!({ "number": 30, "startsAt": "2024-03-15T00:00:00.000Z" }),
+            json!({ "number": 20, "startsAt": "2024-02-15T00:00:00.000Z" }),
+        ];
+
+        let selected = select_recent_cycles_for_velocity(cycles, 2);
+        let numbers: Vec<u64> = selected
+            .iter()
+            .map(|cycle| cycle["number"].as_u64().unwrap())
+            .collect();
+
+        assert_eq!(numbers, vec![20, 30]);
+    }
+
+    #[test]
+    fn test_select_recent_cycles_for_velocity_zero_count_returns_empty() {
+        let cycles = vec![json!({ "number": 10, "startsAt": "2024-01-15T00:00:00.000Z" })];
+
+        assert!(select_recent_cycles_for_velocity(cycles, 0).is_empty());
+    }
 }
