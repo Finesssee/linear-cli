@@ -1251,8 +1251,8 @@ fn setup_pager() -> Option<PagerGuard> {
     }
 
     let pager_cmd = std::env::var("PAGER").unwrap_or_else(|_| "less".to_string());
-    let (program, args) = resolve_pager_command(&pager_cmd);
-    if program == "cat" || program.is_empty() {
+    let (program, args) = resolve_pager_command(&pager_cmd, trust_pager_enabled());
+    if pager_program_basename(&program) == Some("cat") || program.is_empty() {
         return None;
     }
 
@@ -1301,7 +1301,23 @@ fn setup_pager() -> Option<PagerGuard> {
     }
 }
 
-fn resolve_pager_command(pager_cmd: &str) -> (String, Vec<String>) {
+fn pager_program_basename(program: &str) -> Option<&str> {
+    std::path::Path::new(program).file_name()?.to_str()
+}
+
+fn trust_pager_enabled() -> bool {
+    std::env::var("LINEAR_CLI_TRUST_PAGER")
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn resolve_pager_command(pager_cmd: &str, trust_pager: bool) -> (String, Vec<String>) {
     let pager_cmd = pager_cmd.trim();
     if pager_cmd.is_empty() {
         return (String::new(), Vec::new());
@@ -1313,17 +1329,30 @@ fn resolve_pager_command(pager_cmd: &str) -> (String, Vec<String>) {
     };
 
     let trusted = ["less", "more", "most", "bat", "cat"];
-    let has_path_component = std::path::Path::new(program).components().count() > 1;
+    let program_path = std::path::Path::new(program);
+    let has_path_component = program_path.components().count() > 1;
 
     if trusted.contains(&program) && !has_path_component {
         let args = parts.map(|part| part.to_string()).collect();
         return (program.to_string(), args);
     }
 
-    eprintln!(
-        "Ignoring untrusted PAGER '{}'; falling back to less",
-        pager_cmd
-    );
+    if trust_pager && program_path.is_absolute() {
+        let args = parts.map(|part| part.to_string()).collect();
+        return (program.to_string(), args);
+    }
+
+    if has_path_component {
+        eprintln!(
+            "Ignoring untrusted PAGER '{}'; set LINEAR_CLI_TRUST_PAGER=1 to allow absolute pager paths, otherwise falling back to less",
+            pager_cmd
+        );
+    } else {
+        eprintln!(
+            "Ignoring untrusted PAGER '{}'; falling back to less",
+            pager_cmd
+        );
+    }
     ("less".to_string(), Vec::new())
 }
 
@@ -1535,21 +1564,35 @@ mod tests {
 
     #[test]
     fn test_resolve_pager_command_allows_known_bare_program() {
-        let (program, args) = resolve_pager_command("less -R -F");
+        let (program, args) = resolve_pager_command("less -R -F", false);
         assert_eq!(program, "less");
         assert_eq!(args, vec!["-R", "-F"]);
     }
 
     #[test]
     fn test_resolve_pager_command_rejects_absolute_path_bypass() {
-        let (program, args) = resolve_pager_command("/tmp/evil/less --steal");
+        let (program, args) = resolve_pager_command("/tmp/evil/less --steal", false);
         assert_eq!(program, "less");
         assert!(args.is_empty());
     }
 
     #[test]
     fn test_resolve_pager_command_rejects_relative_path_bypass() {
-        let (program, args) = resolve_pager_command("./less");
+        let (program, args) = resolve_pager_command("./less", false);
+        assert_eq!(program, "less");
+        assert!(args.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_pager_command_allows_absolute_path_when_trusted() {
+        let (program, args) = resolve_pager_command("/usr/bin/less -R -F", true);
+        assert_eq!(program, "/usr/bin/less");
+        assert_eq!(args, vec!["-R", "-F"]);
+    }
+
+    #[test]
+    fn test_resolve_pager_command_rejects_relative_path_even_when_trusted() {
+        let (program, args) = resolve_pager_command("./less -R", true);
         assert_eq!(program, "less");
         assert!(args.is_empty());
     }

@@ -529,6 +529,8 @@ linear-cli is designed to work well with AI agents and scripts. Every command su
 | `--no-pager` | Disable auto-paging |
 | `--no-cache` | Bypass cache |
 
+To allow an absolute `PAGER` path you explicitly trust, set `LINEAR_CLI_TRUST_PAGER=1`.
+
 ### Scripting Examples
 
 ```bash

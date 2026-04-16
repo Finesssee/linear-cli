@@ -126,7 +126,7 @@ Key assets:
 ### External command execution and VCS integration
 
 - **Surface:** The CLI launches `git`, `jj`, `gh`, `cargo`, and URL-opening helpers without a shell. Evidence: `src/vcs.rs`, `src/commands/git.rs`, `src/commands/update.rs`, `src/commands/auth.rs`, `src/commands/issues.rs`.
-- **Mitigations present:** Commands are built with `Command::new(...)` rather than shell interpolation, generated branch names are normalized to kebab-case and validated with `git check-ref-format --branch`, and the pager path only trusts a small set of bare executable names instead of arbitrary path-based overrides from `PAGER`. Evidence: `src/vcs.rs`, `src/main.rs`.
+- **Mitigations present:** Commands are built with `Command::new(...)` rather than shell interpolation, generated branch names are normalized to kebab-case and validated with `git check-ref-format --branch`, and the pager path only trusts a small set of bare executable names by default. Absolute `PAGER` paths require an explicit trust override, while relative paths remain rejected. Evidence: `src/vcs.rs`, `src/main.rs`.
 - **Attacker story:** A hostile PATH injects a malicious `git`, `cargo`, or `gh` binary, or a compromised local environment tampers with the update path. This is not a remote exploit from Linear data, but it is a credible local code-execution risk if the operator's environment is already compromised.
 
 ### File import, export, cache, and update state
