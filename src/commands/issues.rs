@@ -1031,8 +1031,6 @@ async fn get_issue(id: &str, output: &OutputOptions, history: bool, comments: bo
                         toProject { name }
                         archived
                         trashed
-                        slaBreachesAt
-                        slaStartedAt
                     }
                 }"#
     } else {

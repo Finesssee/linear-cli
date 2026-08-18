@@ -66,8 +66,8 @@ struct InitiativeRow {
     name: String,
     #[tabled(rename = "Status")]
     status: String,
-    #[tabled(rename = "Progress")]
-    progress: String,
+    #[tabled(rename = "Health")]
+    health: String,
     #[tabled(rename = "Projects")]
     project_count: String,
 }
@@ -113,7 +113,7 @@ async fn list_initiatives(output: &OutputOptions, pagination: &PaginationOptions
                     description
                     status
                     sortOrder
-                    progress
+                    health
                     projects {
                         nodes {
                             id
@@ -143,10 +143,7 @@ async fn list_initiatives(output: &OutputOptions, pagination: &PaginationOptions
             .iter()
             .filter_map(|v| {
                 let i = serde_json::from_value::<Initiative>(v.clone()).ok()?;
-                let progress = format!(
-                    "{}%",
-                    (v["progress"].as_f64().unwrap_or(0.0) * 100.0) as i32
-                );
+                let health = v["health"].as_str().unwrap_or("-").to_string();
                 let project_count = v["projects"]["nodes"]
                     .as_array()
                     .map(|a| a.len().to_string())
@@ -155,7 +152,7 @@ async fn list_initiatives(output: &OutputOptions, pagination: &PaginationOptions
                     id: i.id,
                     name: truncate(&i.name, max_width),
                     status: i.status.as_deref().unwrap_or("-").to_string(),
-                    progress,
+                    health,
                     project_count,
                 })
             })
@@ -396,4 +393,3 @@ async fn delete_initiative(id: &str, force: bool) -> Result<()> {
 
     Ok(())
 }
-
