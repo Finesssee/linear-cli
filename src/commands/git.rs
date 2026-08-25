@@ -7,8 +7,13 @@ use std::process::Command;
 
 use crate::api::LinearClient;
 use crate::display_options;
+use crate::output::OutputOptions;
 use crate::text::truncate;
 use crate::vcs::{generate_branch_name, git_branch_exists, run_git_command, validate_branch_name};
+
+mod review_url;
+
+use review_url::show_review_url;
 
 /// Version control system type
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -82,6 +87,19 @@ pub enum GitCommands {
         #[arg(long, value_enum)]
         vcs: Option<Vcs>,
     },
+    /// Show the Linear review URL for an issue's pull request(s)
+    #[command(after_help = r#"EXAMPLES:
+    linear git review-url LIN-123               # Print the review URL(s)
+    linear g review-url LIN-123 -o json         # Resolved and unresolved PRs
+
+NOTE: The review URL is read from the issue's pull request notifications, falling
+back to the pull requests linked to its agent sessions. A pull request that has
+produced neither has no review URL to resolve; it is listed as unresolved rather
+than dropped, on stderr in plain text and under "unresolved" in JSON."#)]
+    ReviewUrl {
+        /// Issue identifier (e.g., "LIN-123") or ID
+        issue: String,
+    },
     /// Create a GitHub PR from a Linear issue
     #[command(after_help = r#"EXAMPLES:
     linear git pr LIN-123                      # Create PR for issue
@@ -140,8 +158,9 @@ fn get_vcs(vcs_flag: Option<Vcs>) -> Result<Vcs> {
     }
 }
 
-pub async fn handle(cmd: GitCommands) -> Result<()> {
+pub async fn handle(cmd: GitCommands, output: &OutputOptions) -> Result<()> {
     match cmd {
+        GitCommands::ReviewUrl { issue } => show_review_url(&issue, output).await,
         GitCommands::Checkout { issue, branch, vcs } => {
             let vcs = get_vcs(vcs)?;
             checkout_issue(&issue, branch, vcs).await

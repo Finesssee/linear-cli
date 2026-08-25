@@ -150,6 +150,128 @@ pub async fn paginate_nodes(
     Ok(items)
 }
 
+/// Whether a short-circuiting paginator should ask for another page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageFlow {
+    /// Read the next page, if the connection has one and the limit allows.
+    Continue,
+    /// Everything the caller wanted is in hand; stop without another request.
+    Stop,
+}
+
+/// Walk a connection forward, letting the caller stop as soon as it has enough.
+///
+/// Same cursor rules as [`paginate_nodes`], but each page is handed to
+/// `accumulate` before the next request goes out and `accumulate` owns whatever
+/// it collects. A caller scanning an unfilterable feed for a known set of
+/// records therefore pays for the pages it actually needs rather than
+/// `limit / page_size` of them every time.
+///
+/// # Example
+///
+/// ```ignore
+/// let mut found = Vec::new();
+/// paginate_until(
+///     &client,
+///     query,
+///     Map::new(),
+///     &["data", "notifications", "nodes"],
+///     &["data", "notifications", "pageInfo"],
+///     &options,
+///     100,
+///     |nodes| {
+///         found.extend(nodes.into_iter().filter(is_wanted));
+///         if found.len() == wanted { PageFlow::Stop } else { PageFlow::Continue }
+///     },
+/// )
+/// .await?;
+/// ```
+#[allow(clippy::too_many_arguments)]
+pub async fn paginate_until<F>(
+    client: &LinearClient,
+    query: &str,
+    base_variables: Map<String, Value>,
+    nodes_path: &[&str],
+    page_info_path: &[&str],
+    options: &PaginationOptions,
+    default_page_size: usize,
+    mut accumulate: F,
+) -> Result<()>
+where
+    F: FnMut(Vec<Value>) -> PageFlow,
+{
+    let limit = if options.all { None } else { options.limit };
+    let page_size = options.effective_page_size(default_page_size);
+    let mut after = options.after.clone();
+    let mut read: usize = 0;
+
+    loop {
+        let batch_size = limit
+            .map(|l| l.saturating_sub(read).min(page_size))
+            .unwrap_or(page_size)
+            .max(1);
+
+        let mut page_vars = Map::with_capacity(base_variables.len() + 2);
+        page_vars.insert(
+            "first".to_string(),
+            Value::Number(serde_json::Number::from(batch_size as u64)),
+        );
+        if let Some(ref cursor) = after {
+            page_vars.insert("after".to_string(), Value::String(cursor.clone()));
+        }
+        for (k, v) in &base_variables {
+            page_vars.insert(k.clone(), v.clone());
+        }
+
+        let result = client.query(query, Some(Value::Object(page_vars))).await?;
+
+        let mut nodes = get_path(&result, nodes_path)
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        if nodes.is_empty() {
+            break;
+        }
+        if let Some(l) = limit {
+            nodes.truncate(l.saturating_sub(read));
+        }
+        read += nodes.len();
+
+        if accumulate(nodes) == PageFlow::Stop {
+            break;
+        }
+
+        if limit.is_some_and(|l| read >= l) {
+            break;
+        }
+
+        // An unbounded request (no `--limit`, no `--all`) is one page, as in
+        // `paginate_nodes`.
+        if !options.all && options.limit.is_none() {
+            break;
+        }
+
+        let Some(page_info) = get_path(&result, page_info_path).and_then(|v| v.as_object()) else {
+            break;
+        };
+        if !page_info
+            .get("hasNextPage")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            break;
+        }
+        // A connection that claims another page without handing back a cursor
+        // would otherwise reread the first page until the limit ran out.
+        let Some(cursor) = page_info.get("endCursor").and_then(|v| v.as_str()) else {
+            break;
+        };
+        after = Some(cursor.to_string());
+    }
+
+    Ok(())
+}
+
 /// Stream paginated results, calling a handler for each batch of nodes.
 ///
 /// This is memory-efficient for large exports because it processes each page
