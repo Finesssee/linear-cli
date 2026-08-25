@@ -396,4 +396,3 @@ async fn delete_initiative(id: &str, force: bool) -> Result<()> {
 
     Ok(())
 }
-
